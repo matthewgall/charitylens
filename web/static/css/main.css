@@ -1909,6 +1909,7 @@ select:-moz-focusring {
     color: var(--text-secondary);
     text-decoration: none;
     font-weight: 500;
+    margin-top: var(--space-xl);
     margin-bottom: var(--space-lg);
     transition: color var(--transition-base);
 }
