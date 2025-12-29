@@ -1,0 +1,231 @@
+{{define "index.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Charity Transparency Tool - CharityLens</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    {{template "header" .}}
+    
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <h1>CharityLens</h1>
+                <p class="tagline">Make informed giving decisions with transparent charity analytics</p>
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-value">160K+</span>
+                        <span class="stat-label">UK Charities</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">Real-time</span>
+                        <span class="stat-label">Data Updates</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">4-Pillar</span>
+                        <span class="stat-label">Scoring System</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Search Section -->
+    <section class="search-section">
+        <div class="container">
+            <div class="search-wrapper">
+                <div class="search-header">
+                    <h2>Find and analyze UK charities</h2>
+                    <p>Search by name or charity number to see transparency scores and detailed information</p>
+                </div>
+
+                <form class="search-form" hx-get="/api/charities/search" hx-target="#results" hx-trigger="submit" hx-indicator="#loading">
+                    <input type="text" 
+                           name="q" 
+                           class="search-input" 
+                           placeholder="Enter charity name or number..." 
+                           required
+                           autocomplete="off">
+                    <button type="submit" class="search-button">
+                        <span>Search</span>
+                        <svg class="htmx-indicator loading-spinner" style="width: 20px; height: 20px;" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path d="M12 2a10 10 0 0 1 10 10" stroke="white" stroke-width="4" stroke-linecap="round"></path>
+                        </svg>
+                    </button>
+                </form>
+
+                <div class="search-filters">
+                    <button class="filter-chip active">All charities</button>
+                    <button class="filter-chip">High scores (70+)</button>
+                    <button class="filter-chip">Recently updated</button>
+                    <button class="filter-chip">Large charities</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Results Section -->
+    <section class="results-section">
+        <div class="container">
+            <div id="loading" class="loading htmx-indicator">
+                <div class="loading-spinner"></div>
+                <p style="margin-top: var(--space-md); color: var(--text-secondary);">Searching charities...</p>
+            </div>
+            
+            <div id="results">
+                <!-- Results will appear here -->
+                <div class="empty-state">
+                    <svg class="empty-state-icon" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                    </svg>
+                    <h3>Start your search</h3>
+                    <p>Enter a charity name or number to see transparency scores and detailed information</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        // Enhanced HTMX response handler
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add search input enhancements
+            const searchInput = document.querySelector('.search-input');
+            const searchForm = document.querySelector('.search-form');
+            
+            // Auto-focus search on page load
+            searchInput.focus();
+
+            htmx.on('htmx:afterRequest', function(evt) {
+                if (evt.detail.target.id === 'results' && evt.detail.xhr.response) {
+                    const data = JSON.parse(evt.detail.xhr.response);
+                    const charities = data.results || data; // Support both formats
+                    const total = data.total || charities.length;
+                    const offset = data.offset || 0;
+                    const limit = data.limit || charities.length;
+                    const hasMore = data.has_more || false;
+                    
+                    let html = '';
+
+                    if (!charities || charities.length === 0) {
+                        html = `
+                            <div class="empty-state">
+                                <svg class="empty-state-icon" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                                </svg>
+                                <h3>No charities found</h3>
+                                <p>Try searching with a different name or registration number</p>
+                            </div>
+                        `;
+                    } else {
+                        // Results header with pagination info
+                        const showing = `Showing ${offset + 1}-${offset + charities.length} of ${total}`;
+                        html = `
+                            <div class="results-header">
+                                <div class="results-count">${showing} ${total === 1 ? 'charity' : 'charities'}</div>
+                                <select class="sort-dropdown">
+                                    <option>Sort by relevance</option>
+                                    <option>Sort by score</option>
+                                    <option>Sort by name</option>
+                                </select>
+                            </div>
+                            <div class="charity-grid">
+                        `;
+
+                        // Charity cards
+                        charities.forEach(charity => {
+                            // Use real score from API, or show pending if not yet calculated
+                            const score = charity.overall_score || 0;
+                            const roundedScore = Math.round(score);
+                            
+                            // If no score, show as pending (neutral) instead of low (red)
+                            let scoreClass, scoreDisplay;
+                            if (score > 0) {
+                                scoreClass = score >= 80 ? 'score-high' : score >= 60 ? 'score-medium' : 'score-low';
+                                scoreDisplay = roundedScore;
+                            } else {
+                                scoreClass = 'score-pending';
+                                scoreDisplay = 'Pending';
+                            }
+                            
+                            const statusText = charity.status === 'R' ? 'Registered' : charity.status;
+                            
+                            html += `
+                                <div class="charity-card" onclick="window.location.href='/charity/${charity.registered_number}'">
+                                    <div class="charity-header">
+                                        <h3 class="charity-name">${charity.name}</h3>
+                                        <div class="charity-score ${scoreClass}">${scoreDisplay}</div>
+                                    </div>
+                                    <div class="charity-meta">
+                                        <div class="meta-item">
+                                            <svg class="meta-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+                                            </svg>
+                                            <span>Charity #${charity.registered_number}</span>
+                                        </div>
+                                        ${charity.website ? `
+                                        <div class="meta-item">
+                                            <svg class="meta-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                                            </svg>
+                                            <span>Has website</span>
+                                        </div>` : ''}
+                                    </div>
+                                    <div class="charity-tags">
+                                        <span class="tag status-registered">${statusText}</span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+
+                        html += '</div>';
+                        
+                        // Add pagination controls if there are more results
+                        if (total > limit) {
+                            const currentPage = Math.floor(offset / limit) + 1;
+                            const totalPages = Math.ceil(total / limit);
+                            const query = new URLSearchParams(window.location.search).get('q') || searchInput.value;
+                            
+                            html += `
+                                <div style="display: flex; justify-content: center; align-items: center; gap: var(--space-md); margin-top: var(--space-2xl); padding: var(--space-xl) 0;">
+                                    ${offset > 0 ? `
+                                        <button onclick="htmx.ajax('GET', '/api/charities/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${Math.max(0, offset - limit)}', {target: '#results'})"
+                                           style="padding: var(--space-sm) var(--space-md); background: var(--primary); color: white; border-radius: var(--radius-md); border: none; cursor: pointer; font-weight: 500; font-family: inherit; font-size: inherit;">
+                                            ← Previous
+                                        </button>
+                                    ` : ''}
+                                    <span style="color: var(--text-secondary);">
+                                        Page ${currentPage} of ${totalPages}
+                                    </span>
+                                    ${hasMore ? `
+                                        <button onclick="htmx.ajax('GET', '/api/charities/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset + limit}', {target: '#results'})"
+                                           style="padding: var(--space-sm) var(--space-md); background: var(--primary); color: white; border-radius: var(--radius-md); border: none; cursor: pointer; font-weight: 500; font-family: inherit; font-size: inherit;">
+                                            Next →
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            `;
+                        }
+                    }
+
+                    evt.detail.target.innerHTML = html;
+                    
+                    // Scroll to top of results
+                    if (offset > 0) {
+                        document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+                    }
+                }
+            });
+        });
+    </script>
+
+    {{template "footer" .}}
+</body>
+</html>
+{{end}}

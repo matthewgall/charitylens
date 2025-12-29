@@ -1,0 +1,290 @@
+{{define "charity.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Charity.Name}} - CharityLens</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    {{template "header" .}}
+    
+    <div class="container">
+        <!-- Breadcrumb -->
+        <nav class="breadcrumb">
+            <a href="/">Home</a>
+            <span class="breadcrumb-separator">›</span>
+            <a href="/">Search</a>
+            <span class="breadcrumb-separator">›</span>
+            <span>{{.Charity.Name}}</span>
+        </nav>
+
+        <!-- Back Link -->
+        <a href="/" class="back-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+            </svg>
+            Back to search
+        </a>
+
+        <!-- Charity Header -->
+        <div class="charity-header">
+            <div class="charity-title-section">
+                <div class="charity-title-content">
+                    <h1 class="charity-name">{{.Charity.Name}}</h1>
+                    <div class="charity-number">Charity Number: {{.Charity.RegisteredNumber}}</div>
+                    <div class="charity-badges">
+                        <span class="badge badge-success">
+                            <svg width="16" height="16" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                            </svg>
+                            Registered
+                        </span>
+                        {{if .Charity.DateRegistered}}
+                        <span class="badge badge-info">
+                            Established {{.Charity.DateRegistered.Format "2006"}}
+                        </span>
+                        {{end}}
+                    </div>
+                </div>
+
+                <!-- Overall Score -->
+                <div class="overall-score-card">
+                    <div class="score-label">Transparency Score</div>
+                    <div class="score-value">{{printf "%.0f" .Score.OverallScore}}</div>
+                    <div class="score-max">/100</div>
+                    <div class="confidence-badge">{{.Score.ConfidenceLevel}} Confidence</div>
+                </div>
+            </div>
+
+            <!-- Score Breakdown -->
+            <div class="score-breakdown">
+                <div class="score-item">
+                    <div class="score-item-label">Efficiency</div>
+                    <div class="score-ring" data-score="{{.Score.EfficiencyScore}}">
+                        <svg>
+                            <circle cx="60" cy="60" r="54" class="score-ring-bg"></circle>
+                            <circle cx="60" cy="60" r="54" class="score-ring-progress" 
+                                    style="stroke: #10b981; stroke-dasharray: 339.292; stroke-dashoffset: 339.292;"></circle>
+                        </svg>
+                        <div class="score-ring-value">{{printf "%.0f" .Score.EfficiencyScore}}</div>
+                    </div>
+                    <div class="score-item-label">40% weight</div>
+                </div>
+
+                <div class="score-item">
+                    <div class="score-item-label">Financial Health</div>
+                    <div class="score-ring" data-score="{{.Score.FinancialHealthScore}}">
+                        <svg>
+                            <circle cx="60" cy="60" r="54" class="score-ring-bg"></circle>
+                            <circle cx="60" cy="60" r="54" class="score-ring-progress"
+                                    style="stroke: #3b82f6; stroke-dasharray: 339.292; stroke-dashoffset: 339.292;"></circle>
+                        </svg>
+                        <div class="score-ring-value">{{printf "%.0f" .Score.FinancialHealthScore}}</div>
+                    </div>
+                    <div class="score-item-label">30% weight</div>
+                </div>
+
+                <div class="score-item">
+                    <div class="score-item-label">Transparency</div>
+                    <div class="score-ring" data-score="{{.Score.TransparencyScore}}">
+                        <svg>
+                            <circle cx="60" cy="60" r="54" class="score-ring-bg"></circle>
+                            <circle cx="60" cy="60" r="54" class="score-ring-progress"
+                                    style="stroke: #f59e0b; stroke-dasharray: 339.292; stroke-dashoffset: 339.292;"></circle>
+                        </svg>
+                        <div class="score-ring-value">{{printf "%.0f" .Score.TransparencyScore}}</div>
+                    </div>
+                    <div class="score-item-label">20% weight</div>
+                </div>
+
+                <div class="score-item">
+                    <div class="score-item-label">Governance</div>
+                    <div class="score-ring" data-score="{{.Score.GovernanceScore}}">
+                        <svg>
+                            <circle cx="60" cy="60" r="54" class="score-ring-bg"></circle>
+                            <circle cx="60" cy="60" r="54" class="score-ring-progress"
+                                    style="stroke: #6366f1; stroke-dasharray: 339.292; stroke-dashoffset: 339.292;"></circle>
+                        </svg>
+                        <div class="score-ring-value">{{printf "%.0f" .Score.GovernanceScore}}</div>
+                    </div>
+                    <div class="score-item-label">10% weight</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="content-grid">
+            <!-- Left Column -->
+            <div>
+                <!-- About -->
+                <div class="info-card">
+                    <h2>About this charity</h2>
+                    
+                    {{if .Charity.WhatTheCharityDoes}}
+                    <div class="info-section">
+                        <h3>What they do</h3>
+                        <p>{{.Charity.WhatTheCharityDoes}}</p>
+                    </div>
+                    {{end}}
+
+                    {{if .Activities}}
+                    <div class="info-section">
+                        <h3>Activities</h3>
+                        {{range .Activities}}
+                        <p>• {{.Description}}</p>
+                        {{end}}
+                    </div>
+                    {{end}}
+
+                    {{if .Charity.Address}}
+                    <div class="info-section">
+                        <h3>Registered Address</h3>
+                        <p>{{.Charity.Address}}</p>
+                    </div>
+                    {{end}}
+                </div>
+
+                <!-- Financial Information -->
+                {{if .Financial}}
+                <div class="financial-card">
+                    <h2>Financial Overview</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: var(--space-lg);">
+                        Year ending {{.Financial.FinancialYearEnd.Format "January 2006"}}
+                    </p>
+                    <div class="financial-stats">
+                        <div class="financial-stat">
+                            <div class="financial-stat-label">Total Income</div>
+                            <div class="financial-stat-value">£{{formatCurrency .Financial.TotalIncome}}</div>
+                        </div>
+                        <div class="financial-stat">
+                            <div class="financial-stat-label">Total Spending</div>
+                            <div class="financial-stat-value">£{{formatCurrency .Financial.TotalSpending}}</div>
+                        </div>
+                        <div class="financial-stat">
+                            <div class="financial-stat-label">Charitable Spend</div>
+                            <div class="financial-stat-value" data-charitable="{{.Financial.CharitableActivitiesSpend}}" data-total="{{.Financial.TotalSpending}}" title="Estimated - detailed spending breakdown not available from API">
+                                --% <span style="font-size: 0.7em; opacity: 0.7;">*</span>
+                            </div>
+                        </div>
+                        <div class="financial-stat">
+                            <div class="financial-stat-label">Reserves</div>
+                            <div class="financial-stat-value">£{{formatCurrency .Financial.Reserves}}</div>
+                        </div>
+                    </div>
+                    <p style="font-size: 0.875rem; color: var(--text-muted); margin-top: var(--space-md);">
+                        * Charitable spend percentage is estimated at 70% as detailed spending breakdowns are not available via the Charity Commission API. For accurate figures, please review the charity's annual accounts.
+                    </p>
+                </div>
+                {{end}}
+            </div>
+
+            <!-- Right Column -->
+            <div>
+                <!-- Contact Information -->
+                <div class="contact-card">
+                    <h3>Contact Information</h3>
+                    
+                    {{if .Charity.Website}}
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+                            </svg>
+                        </div>
+                        <div class="contact-content">
+                            <div class="contact-label">Website</div>
+                            <div class="contact-value">
+                                <a href="{{ensureAbsoluteURL .Charity.Website}}" target="_blank" rel="noopener">{{.Charity.Website}}</a>
+                            </div>
+                        </div>
+                    </div>
+                    {{end}}
+
+                    {{if .Charity.Email}}
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                            </svg>
+                        </div>
+                        <div class="contact-content">
+                            <div class="contact-label">Email</div>
+                            <div class="contact-value">
+                                <a href="mailto:{{.Charity.Email}}">{{.Charity.Email}}</a>
+                            </div>
+                        </div>
+                    </div>
+                    {{end}}
+
+                    {{if .Charity.Phone}}
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                            </svg>
+                        </div>
+                        <div class="contact-content">
+                            <div class="contact-label">Phone</div>
+                            <div class="contact-value">
+                                <a href="tel:{{.Charity.Phone}}">{{.Charity.Phone}}</a>
+                            </div>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+
+                <!-- Trustees -->
+                {{if .Trustees}}
+                <div class="trustees-card">
+                    <h3>Trustees ({{len .Trustees}})</h3>
+                    <div class="trustee-list">
+                        {{range .Trustees}}
+                        <div class="trustee-item">{{titleCase .Name}}</div>
+                        {{end}}
+                    </div>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Animate score rings on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Animate score rings
+            const scoreRings = document.querySelectorAll('.score-ring');
+            scoreRings.forEach(ring => {
+                const score = parseFloat(ring.dataset.score) || 0;
+                const circle = ring.querySelector('.score-ring-progress');
+                const circumference = 339.292;
+                const offset = circumference - (circumference * score / 100);
+                
+                setTimeout(() => {
+                    circle.style.strokeDashoffset = offset;
+                }, 100);
+            });
+
+            // Calculate charitable spend percentage
+            const charitySpendEl = document.querySelector('[data-charitable]');
+            if (charitySpendEl) {
+                const charitable = parseFloat(charitySpendEl.dataset.charitable) || 0;
+                const total = parseFloat(charitySpendEl.dataset.total) || 0;
+                if (total > 0 && charitable > 0) {
+                    const percentage = Math.round((charitable / total) * 100);
+                    charitySpendEl.innerHTML = percentage + '% <span style="font-size: 0.8em; opacity: 0.8;" title="Based on detailed financial data"">✓</span>';
+                } else if (total > 0) {
+                    // No spending breakdown available
+                    charitySpendEl.innerHTML = 'N/A <span style="font-size: 0.7em; opacity: 0.7;" title="Detailed spending breakdown not available">*</span>';
+                }
+            }
+        });
+    </script>
+
+    {{template "footer" .}}
+</body>
+</html>
+{{end}}

@@ -1,0 +1,104 @@
+{{define "license.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data License - CharityLens</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    {{template "header" .}}
+    
+    <div class="container">
+        <a href="/" class="back-link">
+            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+            </svg>
+            Back to home
+        </a>
+
+        <div class="content-card">
+            <h1>Data License</h1>
+            <p>CharityLens combines data from the Charity Commission with our own analysis and scoring. Different licenses apply to different parts of our service.</p>
+
+            <h2>Source Data: Open Government Licence</h2>
+            <div class="license-box">
+                <strong>Charity Commission Data</strong><br>
+                Licensed under the Open Government Licence v3.0
+            </div>
+            <p>
+                All charity information, including names, registration numbers, financial data, trustee information, and activities, is sourced from the 
+                <a href="https://www.gov.uk/government/organisations/charity-commission" target="_blank" rel="noopener">Charity Commission for England and Wales</a>.
+            </p>
+            <p>
+                This data is made available under the <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">Open Government Licence v3.0</a>, which allows you to:
+            </p>
+            <ul>
+                <li>Copy, publish, distribute and transmit the information</li>
+                <li>Adapt the information</li>
+                <li>Exploit the information commercially and non-commercially</li>
+            </ul>
+            <p>You must, where you do any of the above:</p>
+            <ul>
+                <li>Acknowledge the source of the information by including the following attribution: "Contains information from Charity Commission, licensed under the Open Government Licence v3.0"</li>
+                <li>Provide a link to the OGL: <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/</a></li>
+            </ul>
+
+            <h2>CharityLens Analysis: Creative Commons</h2>
+            <div class="license-box">
+                <strong>Transparency Scores, Analysis & Derived Data</strong><br>
+                Licensed under CC BY 4.0
+            </div>
+            <p>
+                Our original contributions, including transparency scores, financial health analysis, scoring methodology, and presentation of the data, are licensed under the 
+                <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution 4.0 International License (CC BY 4.0)</a>.
+            </p>
+            <p>This means you are free to:</p>
+            <ul>
+                <li><strong>Share</strong> — copy and redistribute the material in any medium or format</li>
+                <li><strong>Adapt</strong> — remix, transform, and build upon the material for any purpose, even commercially</li>
+            </ul>
+            <p>Under the following terms:</p>
+            <ul>
+                <li><strong>Attribution</strong> — You must give appropriate credit to CharityLens, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.</li>
+            </ul>
+
+            <h2>Combining the Licenses</h2>
+            <p>
+                When using data from CharityLens, you must comply with both licenses:
+            </p>
+            <ol>
+                <li>Attribute the Charity Commission as the source of the underlying charity data (OGL v3.0)</li>
+                <li>Attribute CharityLens for the scores, analysis, and derived data (CC BY 4.0)</li>
+            </ol>
+
+            <h3>Example Attribution</h3>
+            <div class="license-box">
+                <p style="margin: 0; color: var(--text-secondary);">
+                    "Charity data from <a href="https://www.gov.uk/government/organisations/charity-commission" target="_blank" rel="noopener">Charity Commission</a> 
+                    (Open Government Licence v3.0). Transparency scores and analysis by <a href="/">CharityLens</a> (CC BY 4.0)."
+                </p>
+            </div>
+
+            <h2>API Usage</h2>
+            <p>
+                Data accessed through our API is subject to the same licensing terms. Please ensure you provide appropriate attribution when using our API.
+            </p>
+
+            <h2>Questions?</h2>
+            <p>
+                If you have questions about licensing or need clarification on how to use our data, please review the full license texts:
+            </p>
+            <ul>
+                <li><a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">Open Government Licence v3.0</a></li>
+                <li><a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution 4.0 International</a></li>
+            </ul>
+        </div>
+    </div>
+
+    {{template "footer" .}}
+</body>
+</html>
+{{end}}

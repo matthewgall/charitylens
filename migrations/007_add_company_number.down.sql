@@ -1,0 +1,3 @@
+-- Remove company_number field from charities table
+-- Note: SQLite doesn't support DROP COLUMN directly
+-- This would require recreating the table in a real rollback scenario

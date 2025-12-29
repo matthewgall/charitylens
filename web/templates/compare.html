@@ -1,0 +1,350 @@
+{{define "compare.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compare Charities - CharityLens</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    {{template "header" .}}
+    
+    <div class="container">
+        <!-- Back Link -->
+        <div style="padding-top: var(--space-xl);">
+            <a href="/" class="back-link">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                </svg>
+                Back to search
+            </a>
+        </div>
+
+        <!-- Page Header -->
+        <div class="page-header">
+            <h1 class="page-title">Compare Charities</h1>
+            <p class="page-subtitle">Select up to 5 charities to compare their transparency scores and key metrics</p>
+        </div>
+
+        <!-- Charity Selector -->
+        <div class="selector-section">
+            <div class="selector-grid">
+                <div class="selector-card" data-slot="1">
+                    <button class="remove-btn" onclick="removeCharity(1)">×</button>
+                    <div class="selector-number">1</div>
+                    <div class="selector-label">First Charity</div>
+                    <input type="text" class="selector-input" placeholder="Enter charity number..." onkeyup="searchCharity(1, this.value)">
+                    <div class="selected-charity"></div>
+                </div>
+
+                <div class="selector-card" data-slot="2">
+                    <button class="remove-btn" onclick="removeCharity(2)">×</button>
+                    <div class="selector-number">2</div>
+                    <div class="selector-label">Second Charity</div>
+                    <input type="text" class="selector-input" placeholder="Enter charity number..." onkeyup="searchCharity(2, this.value)">
+                    <div class="selected-charity"></div>
+                </div>
+
+                <div class="selector-card" data-slot="3">
+                    <button class="remove-btn" onclick="removeCharity(3)">×</button>
+                    <div class="selector-number">3</div>
+                    <div class="selector-label">Third Charity</div>
+                    <input type="text" class="selector-input" placeholder="Enter charity number..." onkeyup="searchCharity(3, this.value)">
+                    <div class="selected-charity"></div>
+                </div>
+
+                <div class="selector-card" data-slot="4">
+                    <button class="remove-btn" onclick="removeCharity(4)">×</button>
+                    <div class="selector-number">4</div>
+                    <div class="selector-label">Fourth Charity</div>
+                    <input type="text" class="selector-input" placeholder="Enter charity number..." onkeyup="searchCharity(4, this.value)">
+                    <div class="selected-charity"></div>
+                </div>
+
+                <div class="selector-card" data-slot="5">
+                    <button class="remove-btn" onclick="removeCharity(5)">×</button>
+                    <div class="selector-number">5</div>
+                    <div class="selector-label">Fifth Charity</div>
+                    <input type="text" class="selector-input" placeholder="Enter charity number..." onkeyup="searchCharity(5, this.value)">
+                    <div class="selected-charity"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compare Button -->
+        <div class="compare-action">
+            <button class="compare-button" onclick="compareCharities()" disabled>
+                <span>Compare Selected Charities</span>
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Comparison Results -->
+        <div id="comparison-results" class="comparison-section">
+            <!-- Results will appear here -->
+        </div>
+    </div>
+
+    <script>
+        let selectedCharities = {};
+        let charitySearchTimeout;
+
+        function searchCharity(slot, query) {
+            clearTimeout(charitySearchTimeout);
+            
+            if (!query || query.length < 3) return;
+            
+            charitySearchTimeout = setTimeout(() => {
+                // In a real app, this would search via API
+                // For now, we'll simulate finding a charity
+                if (query.match(/^\d+$/)) {
+                    selectCharity(slot, {
+                        number: query,
+                        name: 'Example Charity ' + query
+                    });
+                }
+            }, 300);
+        }
+
+        function selectCharity(slot, charity) {
+            selectedCharities[slot] = charity;
+            const card = document.querySelector(`[data-slot="${slot}"]`);
+            card.classList.add('selected');
+            card.querySelector('.selected-charity').textContent = charity.name;
+            updateCompareButton();
+        }
+
+        function removeCharity(slot) {
+            delete selectedCharities[slot];
+            const card = document.querySelector(`[data-slot="${slot}"]`);
+            card.classList.remove('selected');
+            card.querySelector('.selected-charity').textContent = '';
+            card.querySelector('.selector-input').value = '';
+            updateCompareButton();
+        }
+
+        function updateCompareButton() {
+            const count = Object.keys(selectedCharities).length;
+            const button = document.querySelector('.compare-button');
+            button.disabled = count < 2;
+            
+            if (count >= 2) {
+                button.querySelector('span').textContent = `Compare ${count} Charities`;
+            } else {
+                button.querySelector('span').textContent = 'Compare Selected Charities';
+            }
+        }
+
+        function compareCharities() {
+            const numbers = Object.values(selectedCharities).map(c => c.number).join(',');
+            
+            // Show loading state
+            document.getElementById('comparison-results').innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p style="margin-top: var(--space-md); color: var(--text-secondary);">Loading comparison...</p>
+                </div>
+            `;
+
+            // Fetch comparison data
+            fetch(`/api/charities/compare?numbers=${numbers}`)
+                .then(response => response.json())
+                .then(data => {
+                    displayComparison(data);
+                })
+                .catch(error => {
+                    document.getElementById('comparison-results').innerHTML = `
+                        <div class="empty-state">
+                            <p>Failed to load comparison. Please try again.</p>
+                        </div>
+                    `;
+                });
+        }
+
+        function displayComparison(data) {
+            if (!data.charities || data.charities.length === 0) {
+                document.getElementById('comparison-results').innerHTML = `
+                    <div class="empty-state">
+                        <p>No data available for comparison.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Find highest scores for highlighting
+            const maxOverall = Math.max(...data.scores.map(s => s.overall_score || 0));
+            const maxEfficiency = Math.max(...data.scores.map(s => s.efficiency_score || 0));
+            const maxFinancial = Math.max(...data.scores.map(s => s.financial_health_score || 0));
+            const maxTransparency = Math.max(...data.scores.map(s => s.transparency_score || 0));
+            const maxGovernance = Math.max(...data.scores.map(s => s.governance_score || 0));
+
+            let html = `
+                <div class="comparison-table">
+                    <div class="table-scroll">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    ${data.charities.map((charity, i) => `
+                                        <th class="charity-header-cell">
+                                            <div class="charity-name-table">${charity.name}</div>
+                                            <div class="charity-number-table">#${charity.registered_number}</div>
+                                            ${data.scores[i] && data.scores[i].overall_score === maxOverall ? `
+                                                <div class="winner-badge">
+                                                    <svg fill="currentColor" viewBox="0 0 20 20">
+                                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                                                    </svg>
+                                                    Highest Score
+                                                </div>
+                                            ` : ''}
+                                        </th>
+                                    `).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Overall Score</td>
+                                    ${data.scores.map(score => {
+                                        const value = score.overall_score || 0;
+                                        const scoreClass = value >= 80 ? 'score-high' : value >= 60 ? 'score-medium' : 'score-low';
+                                        const isMax = value === maxOverall;
+                                        return `
+                                            <td>
+                                                <div class="score-display ${scoreClass}" ${isMax ? 'style="font-weight: 800;"' : ''}>
+                                                    <div class="score-value">${Math.round(value)}</div>
+                                                    <div class="score-bar">
+                                                        <div class="score-fill" style="width: ${value}%"></div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        `;
+                                    }).join('')}
+                                </tr>
+                                <tr>
+                                    <td>Efficiency Score</td>
+                                    ${data.scores.map(score => {
+                                        const value = score.efficiency_score || 0;
+                                        const isMax = value === maxEfficiency;
+                                        return `
+                                            <td>
+                                                <div class="score-display" ${isMax ? 'style="font-weight: 800;"' : ''}>
+                                                    <div class="score-value" style="color: var(--success);">${Math.round(value)}</div>
+                                                    <div class="score-bar">
+                                                        <div class="score-fill" style="width: ${value}%; background: var(--success);"></div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        `;
+                                    }).join('')}
+                                </tr>
+                                <tr>
+                                    <td>Financial Health</td>
+                                    ${data.scores.map(score => {
+                                        const value = score.financial_health_score || 0;
+                                        const isMax = value === maxFinancial;
+                                        return `
+                                            <td>
+                                                <div class="score-display" ${isMax ? 'style="font-weight: 800;"' : ''}>
+                                                    <div class="score-value" style="color: var(--info);">${Math.round(value)}</div>
+                                                    <div class="score-bar">
+                                                        <div class="score-fill" style="width: ${value}%; background: var(--info);"></div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        `;
+                                    }).join('')}
+                                </tr>
+                                <tr>
+                                    <td>Transparency Score</td>
+                                    ${data.scores.map(score => {
+                                        const value = score.transparency_score || 0;
+                                        const isMax = value === maxTransparency;
+                                        return `
+                                            <td>
+                                                <div class="score-display" ${isMax ? 'style="font-weight: 800;"' : ''}>
+                                                    <div class="score-value" style="color: var(--warning);">${Math.round(value)}</div>
+                                                    <div class="score-bar">
+                                                        <div class="score-fill" style="width: ${value}%; background: var(--warning);"></div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        `;
+                                    }).join('')}
+                                </tr>
+                                <tr>
+                                    <td>Governance Score</td>
+                                    ${data.scores.map(score => {
+                                        const value = score.governance_score || 0;
+                                        const isMax = value === maxGovernance;
+                                        return `
+                                            <td>
+                                                <div class="score-display" ${isMax ? 'style="font-weight: 800;"' : ''}>
+                                                    <div class="score-value" style="color: var(--primary);">${Math.round(value)}</div>
+                                                    <div class="score-bar">
+                                                        <div class="score-fill" style="width: ${value}%; background: var(--primary);"></div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        `;
+                                    }).join('')}
+                                </tr>
+                                <tr>
+                                    <td>Status</td>
+                                    ${data.charities.map(charity => `
+                                        <td>
+                                            <span class="badge badge-success" style="background: rgba(16, 185, 129, 0.1); color: var(--success); padding: 0.25rem 0.75rem; border-radius: var(--radius-full); font-size: 0.875rem; font-weight: 500;">
+                                                ${charity.status === 'R' ? 'Registered' : charity.status}
+                                            </span>
+                                        </td>
+                                    `).join('')}
+                                </tr>
+                                <tr>
+                                    <td>Website</td>
+                                    ${data.charities.map(charity => `
+                                        <td>
+                                            ${charity.website ? `<a href="${charity.website}" target="_blank" style="color: var(--primary); text-decoration: none;">Visit Website →</a>` : '<span style="color: var(--text-muted);">Not available</span>'}
+                                        </td>
+                                    `).join('')}
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('comparison-results').innerHTML = html;
+
+            // Animate score bars
+            setTimeout(() => {
+                document.querySelectorAll('.score-fill').forEach(fill => {
+                    fill.style.width = fill.style.width;
+                });
+            }, 100);
+        }
+
+        // Add URL parameter support for pre-selecting charities
+        const urlParams = new URLSearchParams(window.location.search);
+        const numbers = urlParams.get('numbers');
+        if (numbers) {
+            const charityNumbers = numbers.split(',');
+            charityNumbers.forEach((number, index) => {
+                if (index < 5) {
+                    selectCharity(index + 1, {
+                        number: number,
+                        name: 'Loading...'
+                    });
+                    // In a real app, fetch the charity name
+                }
+            });
+        }
+    </script>
+
+    {{template "footer" .}}
+</body>
+</html>
+{{end}}

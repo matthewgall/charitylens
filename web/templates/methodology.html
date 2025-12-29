@@ -1,0 +1,304 @@
+{{define "methodology.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scoring Methodology - CharityLens</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    {{template "header" .}}
+    
+    <div class="container">
+        <a href="/" class="back-link">
+            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+            </svg>
+            Back to home
+        </a>
+
+        <div class="content-card">
+            <h1>Scoring Methodology</h1>
+            <p class="lead" style="font-size: 1.125rem; color: var(--text-primary);">
+                CharityLens provides transparency scores to help donors make informed decisions. Our methodology is open, data-driven, and based on publicly available information from the Charity Commission.
+            </p>
+
+            <h2>Overall Transparency Score</h2>
+            <p>
+                The overall transparency score is a composite score (0-100) calculated from four weighted components:
+            </p>
+
+            <div class="score-component" style="border-color: var(--success);">
+                <h4>
+                    Efficiency Score
+                    <span class="weight-badge">40%</span>
+                </h4>
+                <p style="margin: 0;">
+                    Measures how effectively a charity uses its resources for charitable activities rather than overhead and fundraising costs.
+                </p>
+            </div>
+
+            <div class="score-component" style="border-color: var(--info);">
+                <h4>
+                    Financial Health Score
+                    <span class="weight-badge">30%</span>
+                </h4>
+                <p style="margin: 0;">
+                    Assesses the charity's financial sustainability, reserve levels, and income trends.
+                </p>
+            </div>
+
+            <div class="score-component" style="border-color: var(--warning);">
+                <h4>
+                    Transparency Score
+                    <span class="weight-badge">20%</span>
+                </h4>
+                <p style="margin: 0;">
+                    Evaluates data completeness, filing timeliness, and public accessibility of information.
+                </p>
+            </div>
+
+            <div class="score-component" style="border-color: var(--primary);">
+                <h4>
+                    Governance Score
+                    <span class="weight-badge">10%</span>
+                </h4>
+                <p style="margin: 0;">
+                    Reviews trustee structure, policies, and governance practices.
+                </p>
+            </div>
+
+            <div class="formula-box">
+                Overall Score = (Efficiency × 0.40) + (Financial Health × 0.30) + (Transparency × 0.20) + (Governance × 0.10)
+            </div>
+
+            <h2>1. Efficiency Score (40% weight)</h2>
+            <p>
+                The efficiency score measures what percentage of a charity's spending goes directly to charitable activities versus administrative and fundraising costs.
+            </p>
+
+            <div class="warning-box">
+                <p><strong>Important Limitation:</strong> The Charity Commission API does not provide detailed spending breakdowns. Currently, charitable activities spend is <strong>estimated at 70% of total spending</strong> for all charities. This means efficiency scores are not accurate and should not be heavily weighted. We are working on integrating detailed annual return data for accurate figures.</p>
+            </div>
+
+            <h3>Calculation</h3>
+            <div class="formula-box">
+                Program Spending Ratio = Charitable Activities Spend ÷ Total Spending<br>
+                Efficiency Score = Program Spending Ratio × 100<br>
+                <br>
+                <em>Note: Currently using estimated 70% for all charities</em>
+            </div>
+
+            <h3>Scoring Ranges</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Program Spending</th>
+                        <th>Score Range</th>
+                        <th>Interpretation</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>≥ 85%</td>
+                        <td>85-100</td>
+                        <td>Excellent - Most funds go to programs</td>
+                    </tr>
+                    <tr>
+                        <td>75-84%</td>
+                        <td>75-84</td>
+                        <td>Good - Strong program focus</td>
+                    </tr>
+                    <tr>
+                        <td>65-74%</td>
+                        <td>65-74</td>
+                        <td>Fair - Acceptable overhead</td>
+                    </tr>
+                    <tr>
+                        <td>&lt; 65%</td>
+                        <td>0-64</td>
+                        <td>Needs Improvement - High overhead</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="info-box">
+                <p><strong>Note:</strong> Small charities may have lower efficiency scores due to fixed costs. We consider charity size and sector when interpreting scores.</p>
+            </div>
+
+            <h2>2. Financial Health Score (30% weight)</h2>
+            <p>
+                Financial health evaluates whether a charity has adequate reserves and sustainable income trends.
+            </p>
+
+            <h3>Components</h3>
+            <ul>
+                <li><strong>Reserve Adequacy (70%):</strong> Optimal reserve level is 3-12 months of operating expenses
+                    <ul>
+                        <li>Below 3 months: May struggle with cash flow</li>
+                        <li>3-12 months: Healthy reserves</li>
+                        <li>Above 12 months: May be holding excess reserves</li>
+                    </ul>
+                </li>
+                <li><strong>Income Trends (30%):</strong> Growth or stability in income over recent years indicates financial sustainability</li>
+            </ul>
+
+            <div class="formula-box">
+                Months of Reserves = Reserves ÷ (Total Spending ÷ 12)<br>
+                <br>
+                Reserve Score = {<br>
+                &nbsp;&nbsp;100 if 3 ≤ months ≤ 12<br>
+                &nbsp;&nbsp;(months/3) × 100 if months &lt; 3<br>
+                &nbsp;&nbsp;100 - ((months-12) × 5) if months &gt; 12<br>
+                }
+            </div>
+
+            <h2>3. Transparency Score (20% weight)</h2>
+            <p>
+                Transparency measures how open and accessible a charity is with its information.
+            </p>
+
+            <h3>Factors Evaluated</h3>
+            <ul>
+                <li><strong>Filing Timeliness:</strong> Are accounts filed on time with the Charity Commission?</li>
+                <li><strong>Data Completeness:</strong> Is key information (website, email, activities) provided?</li>
+                <li><strong>Web Presence:</strong> Does the charity have a functioning website?</li>
+                <li><strong>Contact Information:</strong> Is it easy to contact the charity?</li>
+            </ul>
+
+            <div class="formula-box">
+                Transparency Score = (Points Earned ÷ Total Points) × 100<br>
+                <br>
+                Points awarded for:<br>
+                - Accounts filed on time: 30 points<br>
+                - Website provided: 25 points<br>
+                - Email provided: 20 points<br>
+                - Activities described: 15 points<br>
+                - Mission statement: 10 points
+            </div>
+
+            <h2>4. Governance Score (10% weight)</h2>
+            <p>
+                Governance assesses the charity's leadership structure and policies.
+            </p>
+
+            <h3>Evaluation Criteria</h3>
+            <ul>
+                <li><strong>Trustee Board:</strong> Appropriate number of trustees (typically 3-12)</li>
+                <li><strong>Board Diversity:</strong> Mix of skills and backgrounds</li>
+                <li><strong>Trustee Information:</strong> Public disclosure of trustees</li>
+                <li><strong>Policies:</strong> Evidence of governance policies and procedures</li>
+            </ul>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Number of Trustees</th>
+                        <th>Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>5-12 trustees</td>
+                        <td>100</td>
+                    </tr>
+                    <tr>
+                        <td>3-4 or 13-15 trustees</td>
+                        <td>75</td>
+                    </tr>
+                    <tr>
+                        <td>&lt;3 or &gt;15 trustees</td>
+                        <td>50</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2>Confidence Levels</h2>
+            <p>
+                Each score includes a confidence level indicating data quality and freshness:
+            </p>
+
+            <div class="score-range">
+                <span class="score-dot score-high"></span>
+                <strong>High Confidence:</strong> Recent data (within 18 months), all key metrics available
+            </div>
+            <div class="score-range">
+                <span class="score-dot score-medium"></span>
+                <strong>Medium Confidence:</strong> Data 18-36 months old, or some metrics missing
+            </div>
+            <div class="score-range">
+                <span class="score-dot score-low"></span>
+                <strong>Low Confidence:</strong> Data over 36 months old, or significant gaps in information
+            </div>
+
+            <h2>Interpreting Scores</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Score Range</th>
+                        <th>Rating</th>
+                        <th>Meaning</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>80-100</td>
+                        <td style="color: var(--success); font-weight: 600;">Excellent</td>
+                        <td>Strong transparency and financial health</td>
+                    </tr>
+                    <tr>
+                        <td>60-79</td>
+                        <td style="color: var(--info); font-weight: 600;">Good</td>
+                        <td>Solid performance with room for improvement</td>
+                    </tr>
+                    <tr>
+                        <td>40-59</td>
+                        <td style="color: var(--warning); font-weight: 600;">Fair</td>
+                        <td>Adequate but some concerns</td>
+                    </tr>
+                    <tr>
+                        <td>0-39</td>
+                        <td style="color: #ef4444; font-weight: 600;">Needs Improvement</td>
+                        <td>Significant transparency or financial concerns</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2>Important Considerations</h2>
+
+            <div class="warning-box">
+                <p><strong>Scores are not the whole story.</strong> While our methodology provides a useful framework, it cannot capture everything about a charity's impact or effectiveness. We recommend:</p>
+            </div>
+
+            <ul>
+                <li><strong>Context Matters:</strong> Small charities may score lower due to limited resources for reporting</li>
+                <li><strong>Sector Differences:</strong> Different types of charities have different cost structures</li>
+                <li><strong>Impact Over Efficiency:</strong> A slightly less efficient charity may deliver more impact</li>
+                <li><strong>Recent Changes:</strong> Scores reflect historical data and may not capture very recent improvements</li>
+                <li><strong>Do Your Research:</strong> Use scores as a starting point, then dig deeper into charities you're interested in</li>
+            </ul>
+
+            <h2>Data Sources</h2>
+            <p>
+                All data is sourced from the <a href="https://www.gov.uk/government/organisations/charity-commission" target="_blank" rel="noopener">Charity Commission for England and Wales</a> register, which is updated regularly. We refresh our data periodically to ensure accuracy.
+            </p>
+
+            <h2>Feedback and Improvements</h2>
+            <p>
+                Our methodology is designed to be transparent and open to improvement. We welcome feedback from charities, donors, and sector experts. The scoring system may be refined over time based on evidence and best practices.
+            </p>
+
+            <div class="info-box">
+                <p>
+                    <strong>Questions or suggestions?</strong> Our methodology is open source and available on <a href="/license">our license page</a>. We encourage scrutiny and suggestions for improvement.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    {{template "footer" .}}
+</body>
+</html>
+{{end}}
