@@ -14,22 +14,37 @@ Instead of starting with an empty database and fetching charity data on-demand, 
 
 ## Import Modes
 
-The `charityseeder` supports **three modes** for populating and updating your database:
+The `charityseeder` supports **four modes** for populating and updating your database:
 
-### 1. File Mode (FAST - Recommended)
-Import from Charity Commission JSON data dumps. This is **much faster** than API mode and doesn't require an API key.
+### 1. Download Mode (FASTEST & EASIEST - Recommended)
+Download and import directly from Charity Commission in-memory. **No manual file downloads required!**
 
 **Pros:**
-- ⚡ **Extremely fast** - Import 395k charities in ~5-10 minutes
+- 🚀 **Easiest** - One command, no manual downloads
+- ⚡ **Fast** - Import 395k charities in ~15-25 minutes
+- 🔓 **No API key required**
+- 📦 **Complete dataset** - All UK charities at once
+- 💾 **Memory efficient** - Streams data without writing temp files
+- 🔄 **Always fresh** - Downloads latest data directly
+
+**Cons:**
+- 🌐 Requires internet connection throughout import
+- 📊 Downloads 4 large ZIP files (~800MB compressed)
+
+### 2. File Mode (FAST - For manual downloads)
+Import from pre-downloaded Charity Commission JSON data dumps.
+
+**Pros:**
+- ⚡ **Fast** - Import 395k charities in ~5-10 minutes
 - 🔓 **No API key required**
 - 📦 **Complete dataset** - All UK charities at once
 - 💾 **Offline-friendly** - No internet needed after download
 
 **Cons:**
-- 📥 Requires downloading 745MB of JSON files first
+- 📥 Requires manually downloading ZIP files first
 - 📅 Data freshness depends on when you download
 
-### 2. API Mode (Flexible)
+### 3. API Mode (Flexible)
 Scrape directly from the Charity Commission API.
 
 **Pros:**
@@ -42,7 +57,7 @@ Scrape directly from the Charity Commission API.
 - ⏱️ **Much slower** - 170k charities takes ~4-8 hours
 - 🌐 Requires internet connection
 
-### 3. Score Mode (Calculate/Recalculate)
+### 4. Score Mode (Calculate/Recalculate)
 Calculate transparency scores for charities already in the database.
 
 **Use cases:**
@@ -59,12 +74,25 @@ This mode processes all charities without scores (~235 scores/second) and is saf
 
 ## Quick Start
 
-### File Mode (Fastest)
+### Download Mode (Fastest & Easiest - Recommended)
+
+```bash
+# Build and run - that's it! No manual downloads needed.
+cd cmd/charityseeder
+go build
+./charityseeder -mode download
+
+# All 395k charities downloaded and imported automatically!
+```
+
+### File Mode (Manual Download)
 
 ```bash
 # 1. Download Charity Commission data dumps
-wget http://download.charitycommission.gov.uk/register/api/publicextract.charity.json
-wget http://download.charitycommission.gov.uk/register/api/publicextract.charity_trustee.json
+wget https://ccewuksprdoneregsadata1.blob.core.windows.net/data/json/publicextract.charity.zip
+wget https://ccewuksprdoneregsadata1.blob.core.windows.net/data/json/publicextract.charity_trustee.zip
+unzip publicextract.charity.zip
+unzip publicextract.charity_trustee.zip
 
 # 2. Build and run in file mode
 cd cmd/charityseeder
@@ -89,23 +117,95 @@ go build
 ./charityseeder -mode api -start 1 -end 1000
 ```
 
-## File Mode Usage
+## Download Mode Usage (Recommended)
+
+### Quick Start
+
+The download mode handles everything automatically - downloading, extracting, and importing:
+
+```bash
+cd cmd/charityseeder
+go build
+
+# Download and import all data with one command
+./charityseeder -mode download
+
+# Custom database location
+./charityseeder -mode download -db /path/to/charitylens.db
+
+# Adjust batch size for performance tuning
+./charityseeder -mode download -batch-size 5000
+
+# Enable verbose logging
+./charityseeder -mode download -verbose
+```
+
+### What Gets Downloaded
+
+The download mode automatically fetches these files from Charity Commission:
+- `publicextract.charity.zip` (~250MB compressed, ~480MB JSON)
+- `publicextract.charity_trustee.zip` (~90MB compressed, ~260MB JSON)
+- `publicextract.charity_annual_return_parta.zip` (if needed)
+- `publicextract.charity_annual_return_partb.zip` (~200MB compressed, ~500MB JSON)
+
+All files are downloaded in parallel for maximum speed, extracted in memory, and imported directly without writing temporary files to disk.
+
+### Expected Output (Download Mode)
+
+```
+=== Download Import Mode ===
+Downloading Charity Commission data files...
+Downloading charity from https://ccewuksprdoneregsadata1.blob.core.windows.net/data/json/publicextract.charity.zip
+Downloading charity_trustee from https://ccewuksprdoneregsadata1.blob.core.windows.net/data/json/publicextract.charity_trustee.zip
+Downloading charity_annual_return_partb from https://ccewuksprdoneregsadata1.blob.core.windows.net/data/json/publicextract.charity_annual_return_partb.zip
+  charity: 25.0% (62/250 MB)
+  charity_trustee: 50.0% (45/90 MB)
+  charity_annual_return_partb: 10.0% (20/200 MB)
+Download complete for charity (262144000 bytes), extracting...
+Extraction complete for charity: publicextract.charity.json (503316480 bytes)
+...
+All files downloaded successfully!
+Total data size: 1243.45 MB
+
+[1/4] Importing charities from downloaded data...
+Starting charity import from in-memory data
+Progress: 5000 processed (4847 success, 12 failed, 141 skipped) | Rate: 850.32/sec
+...
+=== Download Import Complete ===
+```
+
+### Performance Tips (Download Mode)
+
+- **Fast internet**: Download speed depends on your connection (typically 2-5 minutes for downloads)
+- **Memory**: Uses ~1.5GB RAM peak during extraction and import
+- **SSD storage**: Database writes benefit from SSD storage
+- **Batch size**: Default 1000 works well, increase to 5000 for faster imports
+
+## File Mode Usage (Manual Downloads)
+
+Use this mode if you want to download files manually or work offline.
 
 ### Step 1: Download Charity Commission Data Dumps
 
-The Charity Commission provides complete data dumps that you can download:
+The Charity Commission provides complete data dumps as ZIP files:
 
 ```bash
-# Download charity data (481MB - ~395k charities)
-wget http://download.charitycommission.gov.uk/register/api/publicextract.charity.json
+# Download charity data (250MB ZIP → 480MB JSON - ~395k charities)
+wget https://ccewuksprdoneregsadata1.blob.core.windows.net/data/json/publicextract.charity.zip
 
-# Download trustee data (264MB - ~923k trustee records)
-wget http://download.charitycommission.gov.uk/register/api/publicextract.charity_trustee.json
+# Download trustee data (90MB ZIP → 260MB JSON - ~923k trustee records)
+wget https://ccewuksprdoneregsadata1.blob.core.windows.net/data/json/publicextract.charity_trustee.zip
+
+# Download financial data (200MB ZIP → 500MB JSON - optional but recommended)
+wget https://ccewuksprdoneregsadata1.blob.core.windows.net/data/json/publicextract.charity_annual_return_partb.zip
+
+# Extract all ZIP files
+unzip publicextract.charity.zip
+unzip publicextract.charity_trustee.zip
+unzip publicextract.charity_annual_return_partb.zip
 ```
 
-Alternatively, download from the browser:
-- Charity data: http://download.charitycommission.gov.uk/register/api/publicextract.charity.json
-- Trustee data: http://download.charitycommission.gov.uk/register/api/publicextract.charity_trustee.json
+Alternatively, download manually from: https://register-of-charities.charitycommission.gov.uk/en/register/full-register-download
 
 ### Step 2: Import the Data
 
@@ -269,16 +369,18 @@ It will resume from the last checkpoint.
 
 ## Mode Comparison
 
-| Feature | File Mode | API Mode |
-|---------|-----------|----------|
-| **Speed** | ⚡ 5-10 minutes for all 395k | ⏱️ 4-8 hours for 170k |
-| **API Key** | ❌ Not required | ✅ Required |
-| **Data Freshness** | Depends on download date | Real-time |
-| **Selective Import** | ❌ All or nothing | ✅ Choose ranges |
-| **Internet Required** | Only for download | Yes, continuously |
-| **Trustee Data** | ✅ Included | ✅ Included |
-| **Financial Details** | Basic (income/expenditure) | Detailed breakdowns |
-| **Resumable** | ❌ Restart from beginning | ✅ Checkpoint every 100 |
+| Feature | Download Mode | File Mode | API Mode |
+|---------|---------------|-----------|----------|
+| **Speed** | ⚡ 15-25 minutes for all 395k | ⚡ 5-10 minutes for all 395k | ⏱️ 4-8 hours for 170k |
+| **Setup** | 🚀 One command | 📥 Manual download + extract | 🔑 API key setup |
+| **API Key** | ❌ Not required | ❌ Not required | ✅ Required |
+| **Data Freshness** | ✅ Latest from source | Depends on download date | Real-time |
+| **Selective Import** | ❌ All or nothing | ❌ All or nothing | ✅ Choose ranges |
+| **Internet Required** | Yes, continuously | Only for download | Yes, continuously |
+| **Disk Space** | 💾 Only final DB | 📁 Needs temp files + DB | 💾 Only final DB |
+| **Trustee Data** | ✅ Included | ✅ Included | ✅ Included |
+| **Financial Details** | ✅ Detailed from PartB | ✅ Detailed from PartB | ✅ Detailed from API |
+| **Resumable** | ❌ Restart from beginning | ❌ Restart from beginning | ✅ Checkpoint every 100 |
 
 ## Recommended Seed Sizes
 
@@ -300,10 +402,16 @@ It will resume from the last checkpoint.
 - **Use case**: Production seed, comprehensive coverage
 - **Command**: `./charityseeder -mode api -start 1 -end 50000`
 
-### Full Seed (ALL 395k charities) - FILE MODE (RECOMMENDED)
-- **Time**: ⚡ 15-25 minutes (includes score calculation)
+### Full Seed (ALL 395k charities) - DOWNLOAD MODE (RECOMMENDED)
+- **Time**: ⚡ 15-25 minutes (includes download, import, score calculation)
 - **Size**: ~500 MB - 1 GB
 - **Use case**: Complete UK charity database with pre-computed scores
+- **Command**: `./charityseeder -mode download`
+
+### Full Seed (ALL 395k charities) - FILE MODE (Manual)
+- **Time**: ⚡ 5-10 minutes import + manual download time
+- **Size**: ~500 MB - 1 GB
+- **Use case**: Offline import or when you already have the files
 - **Command**: `./charityseeder -mode file`
 
 ### Full Seed (API Mode Alternative)

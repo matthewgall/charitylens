@@ -156,6 +156,23 @@ func (i *Importer) ImportCharities() error {
 
 	// Strip BOM if present
 	reader := stripBOM(file)
+	return i.importCharitiesFromReader(reader)
+}
+
+// ImportCharitiesFromReader imports charities from an io.Reader (for in-memory data)
+func (i *Importer) ImportCharitiesFromReader(r io.Reader) error {
+	log.Println("Starting charity import from in-memory data")
+	i.progress = ImportProgress{
+		StartTime:  time.Now(),
+		LastUpdate: time.Now(),
+	}
+
+	reader := stripBOM(r)
+	return i.importCharitiesFromReader(reader)
+}
+
+// importCharitiesFromReader is the internal implementation that works with any reader
+func (i *Importer) importCharitiesFromReader(reader io.Reader) error {
 	decoder := json.NewDecoder(reader)
 
 	// Read opening bracket
@@ -224,6 +241,23 @@ func (i *Importer) ImportTrustees() error {
 
 	// Strip BOM if present
 	reader := stripBOM(file)
+	return i.importTrusteesFromReader(reader)
+}
+
+// ImportTrusteesFromReader imports trustees from an io.Reader (for in-memory data)
+func (i *Importer) ImportTrusteesFromReader(r io.Reader) error {
+	log.Println("Starting trustee import from in-memory data")
+	i.progress = ImportProgress{
+		StartTime:  time.Now(),
+		LastUpdate: time.Now(),
+	}
+
+	reader := stripBOM(r)
+	return i.importTrusteesFromReader(reader)
+}
+
+// importTrusteesFromReader is the internal implementation that works with any reader
+func (i *Importer) importTrusteesFromReader(reader io.Reader) error {
 	decoder := json.NewDecoder(reader)
 
 	// Read opening bracket
@@ -297,6 +331,23 @@ func (i *Importer) ImportFinancials() error {
 
 	// Strip BOM if present
 	reader := stripBOM(file)
+	return i.importFinancialsFromReader(reader)
+}
+
+// ImportFinancialsFromReader imports financial data from an io.Reader (for in-memory data)
+func (i *Importer) ImportFinancialsFromReader(r io.Reader) error {
+	log.Println("Starting financial data import from in-memory data")
+	i.progress = ImportProgress{
+		StartTime:  time.Now(),
+		LastUpdate: time.Now(),
+	}
+
+	reader := stripBOM(r)
+	return i.importFinancialsFromReader(reader)
+}
+
+// importFinancialsFromReader is the internal implementation that works with any reader
+func (i *Importer) importFinancialsFromReader(reader io.Reader) error {
 	decoder := json.NewDecoder(reader)
 
 	// Read opening bracket

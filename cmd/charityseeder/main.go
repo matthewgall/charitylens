@@ -16,6 +16,7 @@ import (
 
 	"charitylens/internal/api"
 	"charitylens/internal/database"
+	"charitylens/internal/downloader"
 	"charitylens/internal/importer"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/schollz/progressbar/v3"
@@ -79,7 +80,7 @@ func parseFlags() *Config {
 	config := &Config{}
 
 	var apiKeysStr string
-	flag.StringVar(&config.Mode, "mode", "api", "Import mode: 'api' (scrape from API), 'file' (import from JSON files), or 'score' (calculate scores for existing charities)")
+	flag.StringVar(&config.Mode, "mode", "api", "Import mode: 'api' (scrape from API), 'file' (import from JSON files), 'download' (download and import in-memory), or 'score' (calculate scores for existing charities)")
 	flag.StringVar(&apiKeysStr, "api-keys", os.Getenv("CHARITY_API_KEYS"), "Comma-separated list of API keys for load balancing (or set CHARITY_API_KEYS env var)")
 	flag.StringVar(&config.CharityFile, "charity-file", "publicextract.charity.json", "Path to charity JSON file (file mode only)")
 	flag.StringVar(&config.TrusteeFile, "trustee-file", "publicextract.charity_trustee.json", "Path to trustee JSON file (file mode only)")
@@ -98,8 +99,8 @@ func parseFlags() *Config {
 	flag.Parse()
 
 	// Validate mode
-	if config.Mode != "api" && config.Mode != "file" && config.Mode != "score" {
-		log.Fatalf("Invalid mode: %s (must be 'api', 'file', or 'score')", config.Mode)
+	if config.Mode != "api" && config.Mode != "file" && config.Mode != "download" && config.Mode != "score" {
+		log.Fatalf("Invalid mode: %s (must be 'api', 'file', 'download', or 'score')", config.Mode)
 	}
 
 	// Mode-specific validation
@@ -160,6 +161,8 @@ func run(config *Config) error {
 	// Branch based on mode
 	if config.Mode == "file" {
 		return runFileImport(config, db)
+	} else if config.Mode == "download" {
+		return runDownloadImport(config, db)
 	} else if config.Mode == "score" {
 		return runScoreCalculation(config, db)
 	}
@@ -230,6 +233,92 @@ func runFileImport(config *Config, db *sql.DB) error {
 
 	log.Println("\n=== File Import Complete ===")
 	return nil
+}
+
+func runDownloadImport(config *Config, db *sql.DB) error {
+	ctx := context.Background()
+
+	log.Println("=== Download Import Mode ===")
+	log.Println("Downloading Charity Commission data files...")
+
+	// Create downloader with progress tracking
+	dl := downloader.NewDownloader(downloader.Config{
+		Timeout:    15 * time.Minute,
+		MaxRetries: 3,
+		RetryDelay: 10 * time.Second,
+		ProgressHandler: func(fileType downloader.FileType, bytesDownloaded, totalBytes int64) {
+			if totalBytes > 0 {
+				pct := float64(bytesDownloaded) / float64(totalBytes) * 100
+				if int(pct)%10 == 0 && bytesDownloaded < totalBytes {
+					log.Printf("  %s: %.1f%% (%d/%d MB)", fileType, pct,
+						bytesDownloaded/1024/1024, totalBytes/1024/1024)
+				}
+			}
+		},
+	})
+
+	// Download all required files in parallel
+	files, err := dl.DownloadFiles(ctx, downloader.DefaultFileSet())
+	if err != nil {
+		return fmt.Errorf("failed to download files: %w", err)
+	}
+
+	log.Printf("\nAll files downloaded successfully!")
+	log.Printf("Total data size: %.2f MB\n", calculateTotalSize(files)/1024.0/1024.0)
+
+	// Create importer
+	imp := importer.NewImporter(db, importer.ImportConfig{
+		BatchSize:        config.BatchSize,
+		ProgressInterval: 5000,
+		Verbose:          config.Verbose,
+	})
+
+	// Import charities from in-memory data
+	log.Println("[1/4] Importing charities from downloaded data...")
+	if charityFile, ok := files[downloader.FileCharity]; ok {
+		if err := imp.ImportCharitiesFromReader(charityFile.GetReader()); err != nil {
+			return fmt.Errorf("failed to import charities: %w", err)
+		}
+	} else {
+		return fmt.Errorf("charity file not downloaded")
+	}
+
+	// Import trustees from in-memory data
+	log.Println("\n[2/4] Importing trustees from downloaded data...")
+	if trusteeFile, ok := files[downloader.FileCharityTrustee]; ok {
+		if err := imp.ImportTrusteesFromReader(trusteeFile.GetReader()); err != nil {
+			return fmt.Errorf("failed to import trustees: %w", err)
+		}
+	} else {
+		return fmt.Errorf("trustee file not downloaded")
+	}
+
+	// Import financial data from in-memory data
+	log.Println("\n[3/4] Importing financial data from downloaded data...")
+	if financialFile, ok := files[downloader.FileCharityAnnualReturnB]; ok {
+		if err := imp.ImportFinancialsFromReader(financialFile.GetReader()); err != nil {
+			return fmt.Errorf("failed to import financials: %w", err)
+		}
+	} else {
+		log.Println("Warning: Financial file not downloaded, skipping detailed financial data")
+	}
+
+	// Calculate scores
+	log.Println("\n[4/4] Calculating scores for all charities...")
+	if err := imp.CalculateAllScores(); err != nil {
+		log.Printf("Warning: Failed to calculate all scores: %v (import was successful)", err)
+	}
+
+	log.Println("\n=== Download Import Complete ===")
+	return nil
+}
+
+func calculateTotalSize(files map[downloader.FileType]*downloader.DownloadedFile) int64 {
+	var total int64
+	for _, file := range files {
+		total += file.Size
+	}
+	return total
 }
 
 func runAPIScrape(config *Config, db *sql.DB) error {
