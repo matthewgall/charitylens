@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"charitylens/internal/config"
-	apperrors "charitylens/internal/errors"
 	"charitylens/internal/models"
 	"charitylens/internal/scoring"
 	"charitylens/internal/sync"
@@ -43,30 +42,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("Error encoding JSON response: %v", err)
 	}
-}
-
-// writeError is a helper to write error responses
-func writeError(w http.ResponseWriter, err error) {
-	var status int
-	var message string
-
-	switch {
-	case errors.Is(err, apperrors.ErrNotFound):
-		status = http.StatusNotFound
-		message = "Resource not found"
-	case errors.Is(err, apperrors.ErrInvalidInput):
-		status = http.StatusBadRequest
-		message = "Invalid input"
-	case errors.Is(err, apperrors.ErrUnauthorized):
-		status = http.StatusUnauthorized
-		message = "Unauthorized"
-	default:
-		status = http.StatusInternalServerError
-		message = "Internal server error"
-		log.Printf("Internal error: %v", err)
-	}
-
-	writeJSON(w, status, map[string]string{"error": message})
 }
 
 func (h *CharityHandler) SearchCharities(w http.ResponseWriter, r *http.Request) {
@@ -278,7 +253,7 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 		} else {
 			// Synchronous for first-time searches - wait and use results
 			apiCharities = syncFunc()
-			if apiCharities != nil && len(apiCharities) > 0 {
+			if len(apiCharities) > 0 {
 				// Return paginated slice of API results
 				start := offset
 				end := offset + limit
@@ -352,52 +327,6 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 
 	h.debugLog("Returning %d charities from database (offset=%d, total=%d)", len(charities), offset, totalInDB)
 	return charities, totalInDB
-}
-
-// queueScoreCalculations triggers background score calculation for charities without scores
-func (h *CharityHandler) queueScoreCalculations(charities []models.Charity) {
-	for _, charity := range charities {
-		if charity.RegisteredNumber > 0 && charity.OverallScore == 0 {
-			// Check if charity has a score
-			var hasScore bool
-			h.DB.QueryRow("SELECT 1 FROM charity_scores WHERE charity_number = ?", charity.RegisteredNumber).Scan(&hasScore)
-
-			if !hasScore {
-				h.debugLog("Queuing score calculation for charity %d", charity.RegisteredNumber)
-				go func(charityNum int) {
-					if score, err := scoring.CalculateScore(h.DB, charityNum); err == nil {
-						h.debugLog("Score calculated for charity %d: %.2f", charityNum, score.OverallScore)
-					} else {
-						log.Printf("Score calculation failed for charity %d: %v", charityNum, err)
-					}
-				}(charity.RegisteredNumber)
-			}
-		}
-	}
-}
-
-// mergeCharityResults combines database and API results, deduplicating by registered number
-func (h *CharityHandler) mergeCharityResults(db []models.Charity, api []models.Charity) []models.Charity {
-	seen := make(map[int]bool)
-	var merged []models.Charity
-
-	// Add all database results first
-	for _, charity := range db {
-		if !seen[charity.RegisteredNumber] {
-			merged = append(merged, charity)
-			seen[charity.RegisteredNumber] = true
-		}
-	}
-
-	// Add API results that aren't already in the list
-	for _, charity := range api {
-		if !seen[charity.RegisteredNumber] {
-			merged = append(merged, charity)
-			seen[charity.RegisteredNumber] = true
-		}
-	}
-
-	return merged
 }
 
 func (h *CharityHandler) GetCharity(w http.ResponseWriter, r *http.Request) {

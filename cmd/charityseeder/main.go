@@ -264,7 +264,7 @@ func runDownloadImport(config *Config, db *sql.DB) error {
 	}
 
 	log.Printf("\nAll files downloaded successfully!")
-	log.Printf("Total data size: %.2f MB\n", calculateTotalSize(files)/1024.0/1024.0)
+	log.Printf("Total data size: %.2f MB\n", float64(calculateTotalSize(files))/1024.0/1024.0)
 
 	// Create importer
 	imp := importer.NewImporter(db, importer.ImportConfig{
