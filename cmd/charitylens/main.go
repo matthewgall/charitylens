@@ -67,62 +67,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize database
-	db, err := database.InitDB()
-	if err != nil {
-		logger.Error("Failed to initialize database", "error", err)
-		os.Exit(1)
-	}
-	defer db.Close()
-
-	// Run migrations
-	if err := database.Migrate(db); err != nil {
-		logger.Error("Failed to run migrations", "error", err)
-		os.Exit(1)
-	}
-
+	// Create router early for health checks
 	r := chi.NewRouter()
-
-	// Middleware
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// Initialize handlers
-	charityHandler := handlers.NewCharityHandler(db, cfg)
-	webHandler := handlers.NewWebHandler(db, cfg)
-
-	// Static files (embedded)
-	staticFS := http.FS(static.FS())
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(staticFS)))
-
-	// Web Routes
-	r.Get("/", webHandler.SearchPage)
-	r.Get("/charity/{id}", webHandler.CharityPage)
-	r.Get("/compare", webHandler.ComparePage)
-	r.Get("/license", webHandler.LicensePage)
-	r.Get("/methodology", webHandler.MethodologyPage)
-
-	// API Routes with CORS
-	r.Route("/api", func(r chi.Router) {
-		// Add CORS for API routes
-		r.Use(custommiddleware.CORS([]string{"*"})) // Allow all origins for API
-		r.Use(custommiddleware.Timeout(30 * time.Second))
-
-		r.Get("/charities/search", charityHandler.SearchCharities)
-		r.Get("/charities/{number}", charityHandler.GetCharity)
-		r.Get("/charities/compare", charityHandler.CompareCharities)
-		r.Post("/admin/sync", charityHandler.SyncData)
+	// Add a simple health check endpoint that responds immediately
+	readyChan := make(chan bool, 1)
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-readyChan:
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		default:
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("Initializing..."))
+		}
 	})
 
-	// Start sync worker if enabled
-	if cfg.EnableSyncWorker {
-		logger.Info("Starting background sync worker")
-		go sync.StartSyncWorker(cfg, db)
-	} else {
-		logger.Info("Background sync worker disabled (using sync-on-demand)")
-	}
-
-	// Create server
+	// Create and start server immediately
 	addr := cfg.BindIP + ":" + cfg.Port
 	srv := &http.Server{
 		Addr:         addr,
@@ -139,6 +102,64 @@ func main() {
 			logger.Error("Server failed to start", "error", err)
 			os.Exit(1)
 		}
+	}()
+
+	// Initialize database in background
+	go func() {
+		logger.Info("Initializing database...")
+		db, err := database.InitDB()
+		if err != nil {
+			logger.Error("Failed to initialize database", "error", err)
+			os.Exit(1)
+		}
+
+		// Run migrations
+		logger.Info("Running migrations...")
+		if err := database.Migrate(db); err != nil {
+			logger.Error("Failed to run migrations", "error", err)
+			os.Exit(1)
+		}
+
+		logger.Info("Database ready")
+
+		// Initialize handlers
+		charityHandler := handlers.NewCharityHandler(db, cfg)
+		webHandler := handlers.NewWebHandler(db, cfg)
+
+		// Static files (embedded)
+		staticFS := http.FS(static.FS())
+		r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(staticFS)))
+
+		// Web Routes
+		r.Get("/", webHandler.SearchPage)
+		r.Get("/charity/{id}", webHandler.CharityPage)
+		r.Get("/compare", webHandler.ComparePage)
+		r.Get("/license", webHandler.LicensePage)
+		r.Get("/methodology", webHandler.MethodologyPage)
+
+		// API Routes with CORS
+		r.Route("/api", func(r chi.Router) {
+			// Add CORS for API routes
+			r.Use(custommiddleware.CORS([]string{"*"})) // Allow all origins for API
+			r.Use(custommiddleware.Timeout(30 * time.Second))
+
+			r.Get("/charities/search", charityHandler.SearchCharities)
+			r.Get("/charities/{number}", charityHandler.GetCharity)
+			r.Get("/charities/compare", charityHandler.CompareCharities)
+			r.Post("/admin/sync", charityHandler.SyncData)
+		})
+
+		// Start sync worker if enabled
+		if cfg.EnableSyncWorker {
+			logger.Info("Starting background sync worker")
+			go sync.StartSyncWorker(cfg, db)
+		} else {
+			logger.Info("Background sync worker disabled (using sync-on-demand)")
+		}
+
+		// Signal that the app is ready
+		readyChan <- true
+		logger.Info("Application ready to serve requests")
 	}()
 
 	// Wait for interrupt signal to gracefully shutdown
