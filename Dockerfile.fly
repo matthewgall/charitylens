@@ -1,0 +1,88 @@
+# Multi-stage build for CharityLens with pre-seeded data
+# Optimized for fly.io deployment
+
+# Stage 1: Build the application
+FROM golang:1.24-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git gcc musl-dev sqlite-dev
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the main application with static linking
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -a \
+    -ldflags '-extldflags "-static"' \
+    -tags 'netgo osusergo sqlite_omit_load_extension' \
+    -o charitylens ./cmd/charitylens
+
+# Build the seeder tool for data population
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -a \
+    -ldflags '-extldflags "-static"' \
+    -tags 'netgo osusergo sqlite_omit_load_extension' \
+    -o charityseeder ./cmd/charityseeder
+
+# Stage 2: Seed the database
+# This stage downloads and imports all UK charity data
+FROM builder AS seeder
+
+WORKDIR /app
+
+# Run the seeder in download mode to create a fully populated database
+# This downloads ~800MB of data and creates a database with ~395k charities
+# with pre-calculated transparency scores
+RUN ./charityseeder -mode download -migrations migrations -db /app/charityseeder.db
+
+# Verify the database was created successfully
+RUN test -f /app/charityseeder.db && \
+    echo "Database created successfully" && \
+    ls -lh /app/charityseeder.db
+
+# Stage 3: Create minimal runtime image
+FROM alpine:latest
+
+# Install ONLY the absolute minimum runtime dependencies
+# ca-certificates: for HTTPS API calls
+# tzdata: for timezone support
+RUN apk add --no-cache ca-certificates tzdata && \
+    rm -rf /var/cache/apk/*
+
+# Create non-root user
+RUN addgroup -g 1000 charitylens && \
+    adduser -D -u 1000 -G charitylens charitylens
+
+WORKDIR /app
+
+# Copy binaries from builder
+COPY --from=builder /app/charitylens /app/charityseeder ./
+
+# Copy migrations
+COPY --from=builder /app/migrations ./migrations
+
+# Copy web templates and static files
+COPY --from=builder /app/web ./web
+
+# Copy the pre-seeded database from seeder stage
+COPY --from=seeder /app/charityseeder.db ./charityseeder.db
+
+# Create data directory and set ownership
+RUN mkdir -p /data && \
+    chown -R charitylens:charitylens /data /app && \
+    chmod 644 /app/charityseeder.db
+
+# Switch to non-root user
+USER charitylens
+
+# Expose port (fly.io uses PORT env var)
+EXPOSE 8080
+
+# Run the application
+CMD ["./charitylens"]
