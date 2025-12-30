@@ -652,9 +652,9 @@ func (s *Scraper) printFinalStats() {
 	keyStats := s.apiClient.GetKeyStats()
 	if len(keyStats) > 1 {
 		log.Println("\n=== API Key Usage ===")
-		for key, stats := range keyStats {
+		for key := range keyStats {
 			log.Printf("Key %s: %d requests, %d failures",
-				key, stats.TotalRequests, stats.FailedRequests)
+				key, keyStats[key].TotalRequests, keyStats[key].FailedRequests)
 		}
 	}
 }
