@@ -85,6 +85,23 @@ type AnnualReturnPartBRecord struct {
 	CountEmployees               *int     `json:"count_employees"`
 }
 
+type AnnualReturnHistoryRecord struct {
+	DateOfExtract            string   `json:"date_of_extract"`
+	OrganisationNumber       int      `json:"organisation_number"`
+	RegisteredCharityNumber  int      `json:"registered_charity_number"`
+	FinPeriodStartDate       *string  `json:"fin_period_start_date"`
+	FinPeriodEndDate         *string  `json:"fin_period_end_date"`
+	ARCycleReference         string   `json:"ar_cycle_reference"`
+	ReportingDueDate         *string  `json:"reporting_due_date"`
+	DateAnnualReturnReceived *string  `json:"date_annual_return_received"`
+	DateAccountsReceived     *string  `json:"date_accounts_received"`
+	TotalGrossIncome         *float64 `json:"total_gross_income"`
+	TotalGrossExpenditure    *float64 `json:"total_gross_expenditure"`
+	AccountsQualified        *bool    `json:"accounts_qualified"`
+	SuppressionInd           bool     `json:"suppression_ind"`
+	SuppressionType          *string  `json:"suppression_type"`
+}
+
 // ImportProgress tracks import progress
 type ImportProgress struct {
 	TotalRecords     int
@@ -98,12 +115,13 @@ type ImportProgress struct {
 
 // ImportConfig holds configuration for the import process
 type ImportConfig struct {
-	CharityFile      string
-	TrusteeFile      string
-	FinancialFile    string // Annual return partb file
-	BatchSize        int
-	ProgressInterval int // Log progress every N records
-	Verbose          bool
+	CharityFile             string
+	TrusteeFile             string
+	FinancialFile           string // Annual return partb file
+	AnnualReturnHistoryFile string // Annual return history file
+	BatchSize               int
+	ProgressInterval        int // Log progress every N records
+	Verbose                 bool
 }
 
 // Importer handles importing charity data from JSON files
@@ -600,6 +618,175 @@ func (i *Importer) insertFinancialBatch(records []AnnualReturnPartBRecord) error
 		if err != nil {
 			if i.config.Verbose {
 				log.Printf("Failed to insert financial data for charity %d: %v", record.RegisteredCharityNumber, err)
+			}
+			i.progress.FailedRecords++
+			continue
+		}
+
+		i.progress.SuccessRecords++
+	}
+
+	i.progress.ProcessedRecords += len(records)
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// ImportAnnualReturnHistory imports annual return history data from a file
+func (i *Importer) ImportAnnualReturnHistory() error {
+	if i.config.AnnualReturnHistoryFile == "" {
+		log.Println("No annual return history file specified, skipping")
+		return nil
+	}
+
+	log.Printf("Starting annual return history import from: %s", i.config.AnnualReturnHistoryFile)
+	i.progress = ImportProgress{
+		StartTime:  time.Now(),
+		LastUpdate: time.Now(),
+	}
+
+	file, err := os.Open(i.config.AnnualReturnHistoryFile)
+	if err != nil {
+		return fmt.Errorf("failed to open annual return history file: %w", err)
+	}
+	defer file.Close()
+
+	reader := stripBOM(file)
+	return i.importAnnualReturnHistoryFromReader(reader)
+}
+
+// ImportAnnualReturnHistoryFromReader imports annual return history data from an io.Reader
+func (i *Importer) ImportAnnualReturnHistoryFromReader(r io.Reader) error {
+	log.Println("Starting annual return history import from in-memory data")
+	i.progress = ImportProgress{
+		StartTime:  time.Now(),
+		LastUpdate: time.Now(),
+	}
+
+	reader := stripBOM(r)
+	return i.importAnnualReturnHistoryFromReader(reader)
+}
+
+// importAnnualReturnHistoryFromReader is the internal implementation that works with any reader
+func (i *Importer) importAnnualReturnHistoryFromReader(reader io.Reader) error {
+	decoder := json.NewDecoder(reader)
+
+	// Read opening bracket
+	token, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("failed to read opening bracket: %w", err)
+	}
+	if delim, ok := token.(json.Delim); !ok || delim != '[' {
+		return fmt.Errorf("expected array opening bracket, got: %v", token)
+	}
+
+	batch := make([]AnnualReturnHistoryRecord, 0, i.config.BatchSize)
+	recordNum := 0
+
+	// Process array elements
+	for decoder.More() {
+		var record AnnualReturnHistoryRecord
+		if err := decoder.Decode(&record); err != nil {
+			log.Printf("Failed to decode annual return history record %d: %v", recordNum, err)
+			i.progress.FailedRecords++
+			continue
+		}
+
+		batch = append(batch, record)
+		recordNum++
+		i.progress.TotalRecords = recordNum
+
+		// Process batch when full
+		if len(batch) >= i.config.BatchSize {
+			if err := i.insertAnnualReturnHistoryBatch(batch); err != nil {
+				log.Printf("Failed to insert annual return history batch: %v", err)
+			}
+			batch = batch[:0] // Reset batch
+		}
+
+		// Log progress
+		if recordNum%i.config.ProgressInterval == 0 {
+			i.logProgress()
+		}
+	}
+
+	// Process remaining records
+	if len(batch) > 0 {
+		if err := i.insertAnnualReturnHistoryBatch(batch); err != nil {
+			log.Printf("Failed to insert final annual return history batch: %v", err)
+		}
+	}
+
+	i.logFinalStats("Annual return history import")
+	return nil
+}
+
+// insertAnnualReturnHistoryBatch inserts a batch of annual return history records
+func (i *Importer) insertAnnualReturnHistoryBatch(records []AnnualReturnHistoryRecord) error {
+	tx, err := i.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT OR REPLACE INTO annual_return_history
+		(organisation_number, registered_charity_number, fin_period_start_date, 
+		 fin_period_end_date, ar_cycle_reference, reporting_due_date,
+		 date_annual_return_received, date_accounts_received, total_gross_income,
+		 total_gross_expenditure, accounts_qualified, suppression_ind, 
+		 suppression_type, date_of_extract)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, record := range records {
+		var finStartDate, finEndDate, dueDate, arReceivedDate, accountsReceivedDate, extractDate interface{}
+
+		if record.FinPeriodStartDate != nil {
+			finStartDate = parseDate(*record.FinPeriodStartDate)
+		}
+		if record.FinPeriodEndDate != nil {
+			finEndDate = parseDate(*record.FinPeriodEndDate)
+		}
+		if record.ReportingDueDate != nil {
+			dueDate = parseDate(*record.ReportingDueDate)
+		}
+		if record.DateAnnualReturnReceived != nil {
+			arReceivedDate = parseDate(*record.DateAnnualReturnReceived)
+		}
+		if record.DateAccountsReceived != nil {
+			accountsReceivedDate = parseDate(*record.DateAccountsReceived)
+		}
+		extractDate = parseDate(record.DateOfExtract)
+
+		_, err := stmt.Exec(
+			record.OrganisationNumber,
+			record.RegisteredCharityNumber,
+			finStartDate,
+			finEndDate,
+			record.ARCycleReference,
+			dueDate,
+			arReceivedDate,
+			accountsReceivedDate,
+			record.TotalGrossIncome,
+			record.TotalGrossExpenditure,
+			record.AccountsQualified,
+			record.SuppressionInd,
+			record.SuppressionType,
+			extractDate,
+		)
+
+		if err != nil {
+			if i.config.Verbose {
+				log.Printf("Failed to insert annual return history for charity %d: %v",
+					record.RegisteredCharityNumber, err)
 			}
 			i.progress.FailedRecords++
 			continue

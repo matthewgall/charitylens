@@ -157,26 +157,30 @@
 
             <h2>3. Transparency Score (20% weight)</h2>
             <p>
-                Transparency measures how open and accessible a charity is with its information.
+                Transparency measures how open and accessible a charity is with its information and regulatory compliance.
+                This score uses historical filing data from the Charity Commission to assess transparency over time.
             </p>
 
-            <h3>Factors Evaluated</h3>
+            <h3>Components</h3>
             <ul>
-                <li><strong>Filing Timeliness:</strong> Are accounts filed on time with the Charity Commission?</li>
-                <li><strong>Data Completeness:</strong> Is key information (website, email, activities) provided?</li>
-                <li><strong>Web Presence:</strong> Does the charity have a functioning website?</li>
-                <li><strong>Contact Information:</strong> Is it easy to contact the charity?</li>
+                <li><strong>Filing Timeliness (25%):</strong> Annual returns filed on time in the last 3 years</li>
+                <li><strong>Web Presence (30%):</strong> Charity has a functioning website</li>
+                <li><strong>Financial Data (20%):</strong> Current financial information is available</li>
+                <li><strong>Filing Consistency (10%):</strong> No gaps in filing history over the last 5 years</li>
+                <li><strong>Trustees Listed (10%):</strong> Trustee information is publicly available</li>
+                <li><strong>Accounts Quality (5%):</strong> No qualified accounts (audit issues) in recent years</li>
             </ul>
 
             <div class="formula-box">
-                Transparency Score = (Points Earned ÷ Total Points) × 100<br>
+                Transparency Score = Sum of component scores<br>
                 <br>
-                Points awarded for:<br>
-                - Accounts filed on time: 30 points<br>
-                - Website provided: 25 points<br>
-                - Email provided: 20 points<br>
-                - Activities described: 15 points<br>
-                - Mission statement: 10 points
+                Component breakdown:<br>
+                - Filing timeliness (0-25 points): % of on-time filings × 25<br>
+                - Web presence (0-30 points): Has website = 30, No website = 0<br>
+                - Financial data (0-20 points): Has data = 20, Missing = 0<br>
+                - Filing consistency (0-10 points): % of expected filings × 10<br>
+                - Trustees listed (0-10 points): Has trustees = 10, None = 0<br>
+                - Accounts quality (0-5 points): 5 - (% qualified × 5)
             </div>
 
             <h2>4. Governance Score (10% weight)</h2>

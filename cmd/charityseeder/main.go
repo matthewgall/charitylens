@@ -30,21 +30,22 @@ const (
 )
 
 type Config struct {
-	Mode           string   // "api" or "file"
-	APIKeys        []string // Multiple API keys for load balancing
-	CharityFile    string   // Path to charity JSON file (for file mode)
-	TrusteeFile    string   // Path to trustee JSON file (for file mode)
-	FinancialFile  string   // Path to annual return partb JSON file (for file mode)
-	DBPath         string
-	MigrationsPath string
-	RateLimit      int
-	Concurrency    int
-	MaxRetries     int
-	StartCharity   int
-	EndCharity     int
-	ResumeFrom     int
-	BatchSize      int // For file imports
-	Verbose        bool
+	Mode                    string   // "api" or "file"
+	APIKeys                 []string // Multiple API keys for load balancing
+	CharityFile             string   // Path to charity JSON file (for file mode)
+	TrusteeFile             string   // Path to trustee JSON file (for file mode)
+	FinancialFile           string   // Path to annual return partb JSON file (for file mode)
+	AnnualReturnHistoryFile string   // Path to annual return history JSON file (for file mode)
+	DBPath                  string
+	MigrationsPath          string
+	RateLimit               int
+	Concurrency             int
+	MaxRetries              int
+	StartCharity            int
+	EndCharity              int
+	ResumeFrom              int
+	BatchSize               int // For file imports
+	Verbose                 bool
 }
 
 type Scraper struct {
@@ -85,6 +86,7 @@ func parseFlags() *Config {
 	flag.StringVar(&config.CharityFile, "charity-file", "publicextract.charity.json", "Path to charity JSON file (file mode only)")
 	flag.StringVar(&config.TrusteeFile, "trustee-file", "publicextract.charity_trustee.json", "Path to trustee JSON file (file mode only)")
 	flag.StringVar(&config.FinancialFile, "financial-file", "publicextract.charity_annual_return_partb.json", "Path to annual return partb JSON file (file mode only)")
+	flag.StringVar(&config.AnnualReturnHistoryFile, "history-file", "publicextract.charity_annual_return_history.json", "Path to annual return history JSON file (file mode only)")
 	flag.StringVar(&config.DBPath, "db", "seed.db", "Path to SQLite database file")
 	flag.StringVar(&config.MigrationsPath, "migrations", "../../migrations", "Path to migrations directory")
 	flag.IntVar(&config.RateLimit, "rate-limit", defaultRateLimit, "Maximum requests per second (API mode only)")
@@ -195,38 +197,48 @@ func runFileImport(config *Config, db *sql.DB) error {
 	if config.FinancialFile != "" {
 		log.Printf("Financial file: %s", config.FinancialFile)
 	}
+	if config.AnnualReturnHistoryFile != "" {
+		log.Printf("Annual return history file: %s", config.AnnualReturnHistoryFile)
+	}
 	log.Printf("Batch size: %d\n", config.BatchSize)
 
 	// Create importer
 	imp := importer.NewImporter(db, importer.ImportConfig{
-		CharityFile:      config.CharityFile,
-		TrusteeFile:      config.TrusteeFile,
-		FinancialFile:    config.FinancialFile,
-		BatchSize:        config.BatchSize,
-		ProgressInterval: 5000,
-		Verbose:          config.Verbose,
+		CharityFile:             config.CharityFile,
+		TrusteeFile:             config.TrusteeFile,
+		FinancialFile:           config.FinancialFile,
+		AnnualReturnHistoryFile: config.AnnualReturnHistoryFile,
+		BatchSize:               config.BatchSize,
+		ProgressInterval:        5000,
+		Verbose:                 config.Verbose,
 	})
 
 	// Import charities first
-	log.Println("\n[1/3] Importing charities...")
+	log.Println("\n[1/5] Importing charities...")
 	if err := imp.ImportCharities(); err != nil {
 		return fmt.Errorf("failed to import charities: %w", err)
 	}
 
 	// Then import trustees
-	log.Println("\n[2/3] Importing trustees...")
+	log.Println("\n[2/5] Importing trustees...")
 	if err := imp.ImportTrustees(); err != nil {
 		return fmt.Errorf("failed to import trustees: %w", err)
 	}
 
-	// Finally import detailed financials
-	log.Println("\n[3/4] Importing detailed financial data...")
+	// Import detailed financials
+	log.Println("\n[3/5] Importing detailed financial data...")
 	if err := imp.ImportFinancials(); err != nil {
 		return fmt.Errorf("failed to import financial data: %w", err)
 	}
 
+	// Import annual return history for scoring
+	log.Println("\n[4/5] Importing annual return history...")
+	if err := imp.ImportAnnualReturnHistory(); err != nil {
+		log.Printf("Warning: Failed to import annual return history: %v", err)
+	}
+
 	// Calculate scores for all imported charities
-	log.Println("\n[4/4] Calculating scores for all charities...")
+	log.Println("\n[5/5] Calculating scores for all charities...")
 	if err := imp.CalculateAllScores(); err != nil {
 		log.Printf("Warning: Failed to calculate all scores: %v (import was successful)", err)
 	}
@@ -294,7 +306,7 @@ func runDownloadImport(config *Config, db *sql.DB) error {
 	}
 
 	// Import financial data from in-memory data
-	log.Println("\n[3/4] Importing financial data from downloaded data...")
+	log.Println("\n[3/5] Importing financial data from downloaded data...")
 	if financialFile, ok := files[downloader.FileCharityAnnualReturnB]; ok {
 		if err := imp.ImportFinancialsFromReader(financialFile.GetReader()); err != nil {
 			return fmt.Errorf("failed to import financials: %w", err)
@@ -303,8 +315,18 @@ func runDownloadImport(config *Config, db *sql.DB) error {
 		log.Println("Warning: Financial file not downloaded, skipping detailed financial data")
 	}
 
+	// Import annual return history from in-memory data
+	log.Println("\n[4/5] Importing annual return history from downloaded data...")
+	if historyFile, ok := files[downloader.FileCharityAnnualReturnHist]; ok {
+		if err := imp.ImportAnnualReturnHistoryFromReader(historyFile.GetReader()); err != nil {
+			log.Printf("Warning: Failed to import annual return history: %v", err)
+		}
+	} else {
+		log.Println("Warning: Annual return history file not downloaded, scoring will have limited transparency metrics")
+	}
+
 	// Calculate scores
-	log.Println("\n[4/4] Calculating scores for all charities...")
+	log.Println("\n[5/5] Calculating scores for all charities...")
 	if err := imp.CalculateAllScores(); err != nil {
 		log.Printf("Warning: Failed to calculate all scores: %v (import was successful)", err)
 	}

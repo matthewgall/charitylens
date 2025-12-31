@@ -66,3 +66,23 @@ type CharityScore struct {
 	ConfidenceLevel      string    `json:"confidence_level" db:"confidence_level"`
 	LastCalculated       time.Time `json:"last_calculated" db:"last_calculated"`
 }
+
+// AnnualReturnHistory represents the filing history for a charity
+type AnnualReturnHistory struct {
+	ID                       int        `json:"id" db:"id"`
+	OrganisationNumber       int        `json:"organisation_number" db:"organisation_number"`
+	RegisteredCharityNumber  int        `json:"registered_charity_number" db:"registered_charity_number"`
+	FinPeriodStartDate       *time.Time `json:"fin_period_start_date" db:"fin_period_start_date"`
+	FinPeriodEndDate         *time.Time `json:"fin_period_end_date" db:"fin_period_end_date"`
+	ARCycleReference         string     `json:"ar_cycle_reference" db:"ar_cycle_reference"`
+	ReportingDueDate         *time.Time `json:"reporting_due_date" db:"reporting_due_date"`
+	DateAnnualReturnReceived *time.Time `json:"date_annual_return_received" db:"date_annual_return_received"`
+	DateAccountsReceived     *time.Time `json:"date_accounts_received" db:"date_accounts_received"`
+	TotalGrossIncome         *float64   `json:"total_gross_income" db:"total_gross_income"`
+	TotalGrossExpenditure    *float64   `json:"total_gross_expenditure" db:"total_gross_expenditure"`
+	AccountsQualified        *bool      `json:"accounts_qualified" db:"accounts_qualified"`
+	SuppressionInd           bool       `json:"suppression_ind" db:"suppression_ind"`
+	SuppressionType          *string    `json:"suppression_type" db:"suppression_type"`
+	DateOfExtract            *time.Time `json:"date_of_extract" db:"date_of_extract"`
+	CreatedAt                time.Time  `json:"created_at" db:"created_at"`
+}

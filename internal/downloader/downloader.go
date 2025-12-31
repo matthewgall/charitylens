@@ -16,10 +16,11 @@ import (
 type FileType string
 
 const (
-	FileCharity              FileType = "charity"
-	FileCharityTrustee       FileType = "charity_trustee"
-	FileCharityAnnualReturnA FileType = "charity_annual_return_parta"
-	FileCharityAnnualReturnB FileType = "charity_annual_return_partb"
+	FileCharity                 FileType = "charity"
+	FileCharityTrustee          FileType = "charity_trustee"
+	FileCharityAnnualReturnA    FileType = "charity_annual_return_parta"
+	FileCharityAnnualReturnB    FileType = "charity_annual_return_partb"
+	FileCharityAnnualReturnHist FileType = "charity_annual_return_history"
 )
 
 // baseURL is the Azure blob storage URL for Charity Commission data
@@ -257,5 +258,6 @@ func DefaultFileSet() []FileType {
 		FileCharityTrustee,
 		FileCharityAnnualReturnA,
 		FileCharityAnnualReturnB,
+		FileCharityAnnualReturnHist,
 	}
 }
