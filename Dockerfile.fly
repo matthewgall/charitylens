@@ -44,9 +44,6 @@ FROM builder AS seeder
 
 WORKDIR /app
 
-# Verify migrations directory exists (inherited from builder stage)
-RUN ls -la migrations/ && echo "Migrations directory ready"
-
 # Run the seeder in download mode to create a fully populated database
 # This downloads ~800MB of data and creates a database with ~395k charities
 # with pre-calculated transparency scores
