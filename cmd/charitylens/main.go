@@ -113,11 +113,24 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Run migrations
-		logger.Info("Running migrations...")
-		if err := database.Migrate(db); err != nil {
-			logger.Error("Failed to run migrations", "error", err)
-			os.Exit(1)
+		// Run migrations only if not in offline mode
+		// In offline mode, we use a pre-seeded database that already has the correct schema
+		if !cfg.OfflineMode {
+			logger.Info("Checking migrations...")
+			if err := database.Migrate(db); err != nil {
+				logger.Error("Failed to run migrations", "error", err)
+				os.Exit(1)
+			}
+		} else {
+			logger.Info("Skipping migrations (offline mode - using pre-seeded database)")
+		}
+
+		// Warm up the database with a simple query to ensure it's ready
+		// This prevents the first user request from being slow
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM charities LIMIT 1").Scan(&count); err != nil {
+			logger.Error("Failed to warm up database", "error", err)
+			// Don't exit - this is not critical
 		}
 
 		logger.Info("Database ready")
