@@ -14,9 +14,10 @@ CREATE TABLE IF NOT EXISTS annual_return_history (
     suppression_ind BOOLEAN,
     suppression_type VARCHAR(50),
     date_of_extract DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_charity_number (registered_charity_number),
-    INDEX idx_organisation_number (organisation_number),
-    INDEX idx_fin_period_end (fin_period_end_date),
-    INDEX idx_ar_cycle (ar_cycle_reference)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_arh_charity_number ON annual_return_history(registered_charity_number);
+CREATE INDEX IF NOT EXISTS idx_arh_organisation_number ON annual_return_history(organisation_number);
+CREATE INDEX IF NOT EXISTS idx_arh_fin_period_end ON annual_return_history(fin_period_end_date);
+CREATE INDEX IF NOT EXISTS idx_arh_ar_cycle ON annual_return_history(ar_cycle_reference);
