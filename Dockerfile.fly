@@ -9,24 +9,32 @@ RUN apk add --no-cache git gcc musl-dev sqlite-dev
 
 WORKDIR /app
 
-# Copy go mod files
+# Copy go mod files first for better layer caching
 COPY go.mod go.sum ./
-RUN go mod download
+
+# Download dependencies with cache mount for faster rebuilds
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy source code
 COPY . .
 
 # Build the main application with static linking
-RUN CGO_ENABLED=1 GOOS=linux go build \
+# Use cache mount for build cache to speed up rebuilds
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=1 GOOS=linux go build \
     -a \
-    -ldflags '-extldflags "-static"' \
+    -ldflags '-extldflags "-static" -s -w' \
     -tags 'netgo osusergo sqlite_omit_load_extension' \
     -o charitylens ./cmd/charitylens
 
 # Build the seeder tool for data population
-RUN CGO_ENABLED=1 GOOS=linux go build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=1 GOOS=linux go build \
     -a \
-    -ldflags '-extldflags "-static"' \
+    -ldflags '-extldflags "-static" -s -w' \
     -tags 'netgo osusergo sqlite_omit_load_extension' \
     -o charityseeder ./cmd/charityseeder
 
@@ -41,42 +49,41 @@ WORKDIR /app
 # with pre-calculated transparency scores
 RUN ./charityseeder -mode download -migrations migrations -db /app/charityseeder.db
 
-# Verify the database was created successfully
+# Verify the database was created successfully and show size
 RUN test -f /app/charityseeder.db && \
     echo "Database created successfully" && \
     ls -lh /app/charityseeder.db
 
+# Note: Future optimization could compress the DB here with:
+# RUN gzip -9 /app/charityseeder.db
+# And decompress in runtime stage to reduce Docker layer size
+# However, this would increase startup time, so keeping uncompressed for now
+
 # Stage 3: Create minimal runtime image
 FROM alpine:latest
 
-# Install ONLY the absolute minimum runtime dependencies
-# ca-certificates: for HTTPS API calls
+# Install runtime dependencies and create user in a single layer
+# ca-certificates: for HTTPS API calls (if ever needed)
 # tzdata: for timezone support
 RUN apk add --no-cache ca-certificates tzdata && \
-    rm -rf /var/cache/apk/*
-
-# Create non-root user
-RUN addgroup -g 1000 charitylens && \
+    rm -rf /var/cache/apk/* && \
+    addgroup -g 1000 charitylens && \
     adduser -D -u 1000 -G charitylens charitylens
 
 WORKDIR /app
 
-# Copy binaries from builder
-COPY --from=builder /app/charitylens /app/charityseeder ./
-
-# Copy migrations
-COPY --from=builder /app/migrations ./migrations
-
-# Copy web templates and static files
-COPY --from=builder /app/web ./web
+# Copy only the main binary (templates and static files are embedded)
+COPY --from=builder /app/charitylens ./charitylens
 
 # Copy the pre-seeded database from seeder stage
+# This is the largest file, so copy it last to maximize layer reuse
 COPY --from=seeder /app/charityseeder.db ./charityseeder.db
 
-# Create data directory and set ownership
-RUN mkdir -p /data && \
-    chown -R charitylens:charitylens /data /app && \
-    chmod 644 /app/charityseeder.db
+# Set ownership and permissions in a single layer
+# No migrations directory needed - we skip migrations in offline mode
+RUN chown -R charitylens:charitylens /app && \
+    chmod 444 /app/charityseeder.db && \
+    chmod 555 /app/charitylens
 
 # Switch to non-root user
 USER charitylens
