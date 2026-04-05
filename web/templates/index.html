@@ -149,6 +149,10 @@
                 }
                 searchButton.disabled = !isValidQuery(searchInput.value.trim());
             }
+
+            function buildSearchUrl(query, limit, offset) {
+                return `/api/charities/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`;
+            }
             
             // Auto-focus search on page load without jumping viewport
             if (searchInput) {
@@ -233,14 +237,12 @@
                     } else {
                         // Results header with pagination info
                         const showing = `Showing ${offset + 1}-${offset + charities.length} of ${total}`;
+                        const currentPage = Math.floor(offset / limit) + 1;
+                        const totalPages = Math.max(1, Math.ceil(total / limit));
                         html = `
                             <div class="results-header">
                                 <div class="results-count">${showing} ${total === 1 ? 'charity' : 'charities'}</div>
-                                <select class="sort-dropdown">
-                                    <option>Sort by relevance</option>
-                                    <option>Sort by score</option>
-                                    <option>Sort by name</option>
-                                </select>
+                                <div class="results-page-label">Page ${currentPage} of ${totalPages}</div>
                             </div>
                             <div class="charity-grid">
                         `;
@@ -295,27 +297,49 @@
                         
                         // Add pagination controls if there are more results
                         if (total > limit) {
-                            const currentPage = Math.floor(offset / limit) + 1;
-                            const totalPages = Math.ceil(total / limit);
                             const query = new URLSearchParams(window.location.search).get('q') || searchInput.value;
+                            const prevOffset = Math.max(0, offset - limit);
+                            const nextOffset = offset + limit;
+                            const firstOffset = 0;
+                            const lastOffset = Math.max(0, (totalPages - 1) * limit);
+                            const canGoNext = hasMore || currentPage < totalPages;
+                            const pageButtons = [];
+
+                            const startPage = Math.max(1, currentPage - 1);
+                            const endPage = Math.min(totalPages, currentPage + 1);
+                            for (let page = startPage; page <= endPage; page++) {
+                                const pageOffset = (page - 1) * limit;
+                                pageButtons.push(`
+                                    <button type="button"
+                                            class="pagination-btn ${page === currentPage ? 'active' : ''}"
+                                            ${page === currentPage ? 'disabled' : ''}
+                                            onclick="htmx.ajax('GET', '${buildSearchUrl(query, limit, pageOffset)}', {target: '#results'})">
+                                        ${page}
+                                    </button>
+                                `);
+                            }
                             
                             html += `
-                                <div style="display: flex; justify-content: center; align-items: center; gap: var(--space-md); margin-top: var(--space-2xl); padding: var(--space-xl) 0;">
-                                    ${offset > 0 ? `
-                                        <button onclick="htmx.ajax('GET', '/api/charities/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${Math.max(0, offset - limit)}', {target: '#results'})"
-                                           style="padding: var(--space-sm) var(--space-md); background: var(--primary); color: white; border-radius: var(--radius-md); border: none; cursor: pointer; font-weight: 500; font-family: inherit; font-size: inherit;">
-                                            ← Previous
-                                        </button>
-                                    ` : ''}
-                                    <span style="color: var(--text-secondary);">
-                                        Page ${currentPage} of ${totalPages}
-                                    </span>
-                                    ${hasMore ? `
-                                        <button onclick="htmx.ajax('GET', '/api/charities/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset + limit}', {target: '#results'})"
-                                           style="padding: var(--space-sm) var(--space-md); background: var(--primary); color: white; border-radius: var(--radius-md); border: none; cursor: pointer; font-weight: 500; font-family: inherit; font-size: inherit;">
-                                            Next →
-                                        </button>
-                                    ` : ''}
+                                <div class="results-pagination">
+                                    <button type="button" class="pagination-btn" ${offset === 0 ? 'disabled' : ''}
+                                            onclick="htmx.ajax('GET', '${buildSearchUrl(query, limit, firstOffset)}', {target: '#results'})">
+                                        First
+                                    </button>
+                                    <button type="button" class="pagination-btn" ${offset === 0 ? 'disabled' : ''}
+                                            onclick="htmx.ajax('GET', '${buildSearchUrl(query, limit, prevOffset)}', {target: '#results'})">
+                                        Prev
+                                    </button>
+                                    <div class="pagination-pages">
+                                        ${pageButtons.join('')}
+                                    </div>
+                                    <button type="button" class="pagination-btn" ${!canGoNext ? 'disabled' : ''}
+                                            onclick="htmx.ajax('GET', '${buildSearchUrl(query, limit, nextOffset)}', {target: '#results'})">
+                                        Next
+                                    </button>
+                                    <button type="button" class="pagination-btn" ${currentPage >= totalPages ? 'disabled' : ''}
+                                            onclick="htmx.ajax('GET', '${buildSearchUrl(query, limit, lastOffset)}', {target: '#results'})">
+                                        Last
+                                    </button>
                                 </div>
                             `;
                         }

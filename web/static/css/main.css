@@ -1330,12 +1330,20 @@ body.flex-layout footer {
     justify-content: space-between;
     align-items: center;
     margin-bottom: var(--space-xl);
+    gap: var(--space-md);
+    flex-wrap: wrap;
 }
 
 .results-count {
     font-size: 1.125rem;
     font-weight: 600;
     color: var(--text-primary);
+}
+
+.results-page-label {
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    font-weight: 500;
 }
 
 /* Custom Select/Dropdown Styling */
@@ -1396,8 +1404,10 @@ select:-moz-focusring {
 
 .charity-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-    gap: var(--space-xl);
+    grid-template-columns: 1fr;
+    gap: var(--space-lg);
+    max-width: 980px;
+    margin: 0 auto;
 }
 
 .charity-card {
@@ -1418,6 +1428,10 @@ select:-moz-focusring {
 }
 
 .charity-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
     margin-bottom: var(--space-2xl);
 }
 
@@ -1463,6 +1477,53 @@ select:-moz-focusring {
     display: flex;
     gap: var(--space-lg);
     margin-bottom: var(--space-md);
+    flex-wrap: wrap;
+}
+
+.results-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+    margin-top: var(--space-2xl);
+    padding: var(--space-lg) 0;
+}
+
+.pagination-pages {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.pagination-btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-xs) var(--space-md);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-base);
+    min-width: 44px;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+    transform: translateY(-1px);
+}
+
+.pagination-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+}
+
+.pagination-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .meta-item {
