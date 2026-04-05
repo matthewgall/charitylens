@@ -79,8 +79,8 @@
                 The efficiency score measures what percentage of a charity's spending goes directly to charitable activities versus administrative and fundraising costs.
             </p>
 
-            <div class="warning-box">
-                <p><strong>Important Limitation:</strong> The Charity Commission API does not provide detailed spending breakdowns. Currently, charitable activities spend is <strong>estimated at 70% of total spending</strong> for all charities. This means efficiency scores are not accurate and should not be heavily weighted. We are working on integrating detailed annual return data for accurate figures.</p>
+            <div class="info-box">
+                <p><strong>Data basis:</strong> CharityLens now uses reported spending fields from Charity Commission datasets, including charitable activities spend and total spending where available. This allows efficiency scoring from actual disclosed values rather than fixed estimates.</p>
             </div>
 
             <h3>Calculation</h3>
@@ -88,7 +88,7 @@
                 Program Spending Ratio = Charitable Activities Spend ÷ Total Spending<br>
                 Efficiency Score = Program Spending Ratio × 100<br>
                 <br>
-                <em>Note: Currently using estimated 70% for all charities</em>
+                <em>Fallback: if detailed spending breakdown is missing, we assign a neutral efficiency score of 60 so charities are not penalized for incomplete reporting.</em>
             </div>
 
             <h3>Scoring Ranges</h3>
@@ -125,7 +125,7 @@
             </table>
 
             <div class="info-box">
-                <p><strong>Note:</strong> Small charities may have lower efficiency scores due to fixed costs. We consider charity size and sector when interpreting scores.</p>
+                <p><strong>Note:</strong> Small charities may have lower efficiency scores due to fixed costs. We also apply neutral handling where spending breakdown data is missing, especially for smaller or newly filed organisations.</p>
             </div>
 
             <h2>2. Financial Health Score (30% weight)</h2>
@@ -286,7 +286,7 @@
 
             <h2>Data Sources</h2>
             <p>
-                All data is sourced from the <a href="https://www.gov.uk/government/organisations/charity-commission" target="_blank" rel="noopener">Charity Commission for England and Wales</a> register, which is updated regularly. We refresh our data periodically to ensure accuracy.
+                Data is sourced from the <a href="https://www.gov.uk/government/organisations/charity-commission" target="_blank" rel="noopener">Charity Commission for England and Wales</a>, including register records, financial returns, trustee information, and annual return history. We refresh and rescore data periodically to keep results current.
             </p>
 
             <h2>Feedback and Improvements</h2>
