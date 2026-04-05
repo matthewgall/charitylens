@@ -190,7 +190,7 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 	var totalInDB int
 	countSQL, countArgs, err := b.Select("COUNT(*)").
 		From("charities").
-		Where(sq.Or{sq.Expr("LOWER(name) LIKE LOWER(?)", "%"+query+"%"), sq.Expr("LOWER(name) LIKE LOWER(?)", query+"%")}).
+		Where(sq.Expr("LOWER(name) LIKE LOWER(?)", query+"%")).
 		Where(sq.Eq{"linked_charity_number": 0}).
 		Where("status NOT IN ('Removed', 'RM')").
 		ToSql()
@@ -309,7 +309,7 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 		"COALESCE(s.overall_score, 0) as overall_score",
 	).From("charities c").
 		LeftJoin("charity_scores s ON c.registered_number = s.charity_number").
-		Where(sq.Or{sq.Expr("LOWER(c.name) LIKE LOWER(?)", "%"+query+"%"), sq.Expr("LOWER(c.name) LIKE LOWER(?)", query+"%")}).
+		Where(sq.Expr("LOWER(c.name) LIKE LOWER(?)", query+"%")).
 		Where(sq.Eq{"c.linked_charity_number": 0}).
 		Where("c.status NOT IN ('Removed', 'RM')").
 		OrderBy("c.name").
@@ -350,11 +350,6 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 				charities = append(charities, charity)
 			}
 		}
-	}
-
-	// Recalculate total (main charities only, exclude removed)
-	if err == nil {
-		h.DB.QueryRow(countSQL, countArgs...).Scan(&totalInDB)
 	}
 
 	h.debugLog("Returning %d charities from database (offset=%d, total=%d)", len(charities), offset, totalInDB)
