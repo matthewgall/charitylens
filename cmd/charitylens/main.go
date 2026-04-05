@@ -67,25 +67,87 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create router early for health checks
+	// Initialize database FIRST
+	logger.Info("Initializing database...", "offline_mode", cfg.OfflineMode)
+	db, err := database.InitDB()
+	if err != nil {
+		logger.Error("Failed to initialize database", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("Database connection established")
+
+	// Run migrations only if not in offline mode
+	if !cfg.OfflineMode {
+		logger.Info("Checking migrations...")
+		if err := database.Migrate(db); err != nil {
+			logger.Error("Failed to run migrations", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("Migrations complete")
+	} else {
+		logger.Info("Skipping migrations (offline mode - using pre-seeded database)")
+	}
+
+	// Warm up the database
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM charities LIMIT 1").Scan(&count); err != nil {
+		logger.Error("Failed to warm up database", "error", err)
+		if cfg.OfflineMode {
+			logger.Error("Offline mode requires a pre-seeded database file")
+			os.Exit(1)
+		}
+	} else {
+		logger.Info("Database warmed up", "charities_found", count > 0)
+	}
+
+	logger.Info("Database ready")
+
+	// Initialize handlers
+	charityHandler := handlers.NewCharityHandler(db, cfg)
+	webHandler := handlers.NewWebHandler(db, cfg)
+
+	// Create router with ALL routes
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// Add a simple health check endpoint that responds immediately
-	readyChan := make(chan bool, 1)
+	// Health check endpoint
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-readyChan:
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("OK"))
-		default:
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte("Initializing..."))
-		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
 	})
 
-	// Create and start server immediately
+	// Static files (embedded)
+	staticFS := http.FS(static.FS())
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(staticFS)))
+
+	// Web Routes
+	r.Get("/", webHandler.SearchPage)
+	r.Get("/charity/{id}", webHandler.CharityPage)
+	r.Get("/compare", webHandler.ComparePage)
+	r.Get("/license", webHandler.LicensePage)
+	r.Get("/methodology", webHandler.MethodologyPage)
+
+	// API Routes with CORS
+	r.Route("/api", func(r chi.Router) {
+		r.Use(custommiddleware.CORS([]string{"*"}))
+		r.Use(custommiddleware.Timeout(30 * time.Second))
+
+		r.Get("/charities/search", charityHandler.SearchCharities)
+		r.Get("/charities/{number}", charityHandler.GetCharity)
+		r.Get("/charities/compare", charityHandler.CompareCharities)
+		r.Post("/admin/sync", charityHandler.SyncData)
+	})
+
+	// Start sync worker if enabled
+	if cfg.EnableSyncWorker {
+		logger.Info("Starting background sync worker")
+		go sync.StartSyncWorker(cfg, db)
+	} else {
+		logger.Info("Background sync worker disabled (using sync-on-demand)")
+	}
+
+	// Create server
 	addr := cfg.BindIP + ":" + cfg.Port
 	srv := &http.Server{
 		Addr:         addr,
@@ -97,83 +159,14 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		logger.Info("Starting server", "address", addr)
+		logger.Info("Server listening", "address", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("Server failed to start", "error", err)
+			logger.Error("Server failed", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	// Initialize database in background
-	go func() {
-		logger.Info("Initializing database...")
-		db, err := database.InitDB()
-		if err != nil {
-			logger.Error("Failed to initialize database", "error", err)
-			os.Exit(1)
-		}
-
-		// Run migrations only if not in offline mode
-		// In offline mode, we use a pre-seeded database that already has the correct schema
-		if !cfg.OfflineMode {
-			logger.Info("Checking migrations...")
-			if err := database.Migrate(db); err != nil {
-				logger.Error("Failed to run migrations", "error", err)
-				os.Exit(1)
-			}
-		} else {
-			logger.Info("Skipping migrations (offline mode - using pre-seeded database)")
-		}
-
-		// Warm up the database with a simple query to ensure it's ready
-		// This prevents the first user request from being slow
-		var count int
-		if err := db.QueryRow("SELECT COUNT(*) FROM charities LIMIT 1").Scan(&count); err != nil {
-			logger.Error("Failed to warm up database", "error", err)
-			// Don't exit - this is not critical
-		}
-
-		logger.Info("Database ready")
-
-		// Initialize handlers
-		charityHandler := handlers.NewCharityHandler(db, cfg)
-		webHandler := handlers.NewWebHandler(db, cfg)
-
-		// Static files (embedded)
-		staticFS := http.FS(static.FS())
-		r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(staticFS)))
-
-		// Web Routes
-		r.Get("/", webHandler.SearchPage)
-		r.Get("/charity/{id}", webHandler.CharityPage)
-		r.Get("/compare", webHandler.ComparePage)
-		r.Get("/license", webHandler.LicensePage)
-		r.Get("/methodology", webHandler.MethodologyPage)
-
-		// API Routes with CORS
-		r.Route("/api", func(r chi.Router) {
-			// Add CORS for API routes
-			r.Use(custommiddleware.CORS([]string{"*"})) // Allow all origins for API
-			r.Use(custommiddleware.Timeout(30 * time.Second))
-
-			r.Get("/charities/search", charityHandler.SearchCharities)
-			r.Get("/charities/{number}", charityHandler.GetCharity)
-			r.Get("/charities/compare", charityHandler.CompareCharities)
-			r.Post("/admin/sync", charityHandler.SyncData)
-		})
-
-		// Start sync worker if enabled
-		if cfg.EnableSyncWorker {
-			logger.Info("Starting background sync worker")
-			go sync.StartSyncWorker(cfg, db)
-		} else {
-			logger.Info("Background sync worker disabled (using sync-on-demand)")
-		}
-
-		// Signal that the app is ready
-		readyChan <- true
-		logger.Info("Application ready to serve requests")
-	}()
+	logger.Info("Application ready to serve requests")
 
 	// Wait for interrupt signal to gracefully shutdown
 	quit := make(chan os.Signal, 1)

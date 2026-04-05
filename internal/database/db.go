@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
@@ -73,7 +74,7 @@ func InitDB() (*sql.DB, error) {
 }
 
 func Migrate(db *sql.DB) error {
-	return MigrateWithPath(db, "migrations")
+	return MigrateWithPath(db, defaultMigrationsPath())
 }
 
 func MigrateWithPath(db *sql.DB, migrationsPath string) error {
@@ -131,4 +132,18 @@ func MigrateWithPath(db *sql.DB, migrationsPath string) error {
 	}
 
 	return nil
+}
+
+func defaultMigrationsPath() string {
+	dbType := os.Getenv("DATABASE_TYPE")
+	if dbType == "" {
+		dbType = "sqlite"
+	}
+
+	dialectPath := filepath.Join("migrations", dbType)
+	if info, err := os.Stat(dialectPath); err == nil && info.IsDir() {
+		return dialectPath
+	}
+
+	return "migrations"
 }

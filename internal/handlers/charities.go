@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"charitylens/internal/config"
+	"charitylens/internal/database/sqlbuilder"
 	"charitylens/internal/models"
 	"charitylens/internal/scoring"
 	"charitylens/internal/sync"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -109,20 +111,32 @@ func (h *CharityHandler) SearchCharities(w http.ResponseWriter, r *http.Request)
 
 func (h *CharityHandler) searchByNumber(charityNum int, limit int) []models.Charity {
 	h.debugLog("Searching for charity number: %d", charityNum)
+	b := sqlbuilder.Builder()
 
 	// First check if we already have this charity in the database with score (main charity only, exclude removed)
 	var existing models.Charity
 	var overallScore float64
 	var address, website, email, whatTheCharityDoes sql.NullString
-	err := h.DB.QueryRow(`
-		SELECT c.registered_number, c.name, c.status, c.address, c.website, c.email, 
-		       c.what_the_charity_does, COALESCE(s.overall_score, 0) as overall_score
-		FROM charities c
-		LEFT JOIN charity_scores s ON c.registered_number = s.charity_number
-		WHERE c.registered_number = ? 
-		  AND c.linked_charity_number = 0
-		  AND c.status NOT IN ('Removed', 'RM')
-	`, charityNum).Scan(
+	query, args, err := b.Select(
+		"c.registered_number",
+		"c.name",
+		"c.status",
+		"c.address",
+		"c.website",
+		"c.email",
+		"c.what_the_charity_does",
+		"COALESCE(s.overall_score, 0) as overall_score",
+	).From("charities c").
+		LeftJoin("charity_scores s ON c.registered_number = s.charity_number").
+		Where(sq.Eq{"c.registered_number": charityNum, "c.linked_charity_number": 0}).
+		Where("c.status NOT IN ('Removed', 'RM')").
+		ToSql()
+	if err != nil {
+		log.Printf("Error building number search query: %v", err)
+		return []models.Charity{}
+	}
+
+	err = h.DB.QueryRow(query, args...).Scan(
 		&existing.RegisteredNumber, &existing.Name, &existing.Status,
 		&address, &website, &email, &whatTheCharityDoes,
 		&overallScore,
@@ -170,15 +184,19 @@ func (h *CharityHandler) searchByNumber(charityNum int, limit int) []models.Char
 
 func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]models.Charity, int) {
 	h.debugLog("Searching for charity name: %s (limit=%d, offset=%d)", query, limit, offset)
+	b := sqlbuilder.Builder()
 
 	// First, get total count of matching charities in database (main charities only, exclude removed)
 	var totalInDB int
-	h.DB.QueryRow(`
-		SELECT COUNT(*) FROM charities
-		WHERE (LOWER(name) LIKE LOWER(?) OR LOWER(name) LIKE LOWER(?))
-		  AND linked_charity_number = 0
-		  AND status NOT IN ('Removed', 'RM')
-	`, "%"+query+"%", query+"%").Scan(&totalInDB)
+	countSQL, countArgs, err := b.Select("COUNT(*)").
+		From("charities").
+		Where(sq.Or{sq.Expr("LOWER(name) LIKE LOWER(?)", "%"+query+"%"), sq.Expr("LOWER(name) LIKE LOWER(?)", query+"%")}).
+		Where(sq.Eq{"linked_charity_number": 0}).
+		Where("status NOT IN ('Removed', 'RM')").
+		ToSql()
+	if err == nil {
+		h.DB.QueryRow(countSQL, countArgs...).Scan(&totalInDB)
+	}
 
 	h.debugLog("Total charities in database matching '%s': %d", query, totalInDB)
 
@@ -192,10 +210,17 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 	// For popular searches (10+ results), periodically refresh to find newly registered charities
 	if !h.Cfg.OfflineMode && !shouldSearchAPI && totalInDB >= 10 && len(query) >= 3 {
 		var lastRefresh time.Time
-		err := h.DB.QueryRow(`
-			SELECT last_searched FROM search_cache 
-			WHERE query = ? AND search_type = 'name'
-		`, query).Scan(&lastRefresh)
+		lastSearchSQL, lastSearchArgs, lastSearchErr := b.Select("last_searched").
+			From("search_cache").
+			Where(sq.Eq{"query": query, "search_type": "name"}).
+			Limit(1).
+			ToSql()
+		err := sql.ErrNoRows
+		if lastSearchErr != nil {
+			h.debugLog("Failed to build search cache query: %v", lastSearchErr)
+		} else {
+			err = h.DB.QueryRow(lastSearchSQL, lastSearchArgs...).Scan(&lastRefresh)
+		}
 
 		hoursSinceRefresh := time.Since(lastRefresh).Hours()
 		randomRefresh := rand.Float64() < 0.10 // 10% chance
@@ -230,13 +255,14 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 			log.Printf("API search returned %d results for '%s'", len(results), query)
 
 			// Update search cache
-			h.DB.Exec(`
-				INSERT INTO search_cache (query, search_type, last_searched, result_count)
-				VALUES (?, 'name', ?, ?)
-				ON CONFLICT(query, search_type) DO UPDATE SET
-					last_searched = excluded.last_searched,
-					result_count = excluded.result_count
-			`, query, time.Now(), len(results))
+			cacheSQL, cacheArgs, cacheErr := b.Insert("search_cache").
+				Columns("query", "search_type", "last_searched", "result_count").
+				Values(query, "name", time.Now(), len(results)).
+				Suffix(searchCacheUpsertSuffix()).
+				ToSql()
+			if cacheErr == nil {
+				h.DB.Exec(cacheSQL, cacheArgs...)
+			}
 
 			// Process ALL results to get charity objects
 			// Note: processSearchResults handles background sync and score calculation internally
@@ -272,17 +298,26 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 	}
 
 	// Return paginated results from database (for existing data or if API failed, main charities only, exclude removed)
-	rows, err := h.DB.Query(`
-		SELECT c.registered_number, c.name, c.status, c.address, c.website, c.email, 
-		       c.what_the_charity_does, COALESCE(s.overall_score, 0) as overall_score
-		FROM charities c
-		LEFT JOIN charity_scores s ON c.registered_number = s.charity_number
-		WHERE (LOWER(c.name) LIKE LOWER(?) OR LOWER(c.name) LIKE LOWER(?))
-		  AND c.linked_charity_number = 0
-		  AND c.status NOT IN ('Removed', 'RM')
-		ORDER BY c.name
-		LIMIT ? OFFSET ?
-	`, "%"+query+"%", query+"%", limit, offset)
+	resultSQL, resultArgs, err := b.Select(
+		"c.registered_number",
+		"c.name",
+		"c.status",
+		"c.address",
+		"c.website",
+		"c.email",
+		"c.what_the_charity_does",
+		"COALESCE(s.overall_score, 0) as overall_score",
+	).From("charities c").
+		LeftJoin("charity_scores s ON c.registered_number = s.charity_number").
+		Where(sq.Or{sq.Expr("LOWER(c.name) LIKE LOWER(?)", "%"+query+"%"), sq.Expr("LOWER(c.name) LIKE LOWER(?)", query+"%")}).
+		Where(sq.Eq{"c.linked_charity_number": 0}).
+		Where("c.status NOT IN ('Removed', 'RM')").
+		OrderBy("c.name").
+		Limit(uint64(limit)).
+		Offset(uint64(offset)).
+		ToSql()
+
+	rows, err := h.DB.Query(resultSQL, resultArgs...)
 
 	var charities []models.Charity
 	if err == nil {
@@ -318,12 +353,9 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 	}
 
 	// Recalculate total (main charities only, exclude removed)
-	h.DB.QueryRow(`
-		SELECT COUNT(*) FROM charities
-		WHERE (LOWER(name) LIKE LOWER(?) OR LOWER(name) LIKE LOWER(?))
-		  AND linked_charity_number = 0
-		  AND status NOT IN ('Removed', 'RM')
-	`, "%"+query+"%", query+"%").Scan(&totalInDB)
+	if err == nil {
+		h.DB.QueryRow(countSQL, countArgs...).Scan(&totalInDB)
+	}
 
 	h.debugLog("Returning %d charities from database (offset=%d, total=%d)", len(charities), offset, totalInDB)
 	return charities, totalInDB
@@ -340,11 +372,24 @@ func (h *CharityHandler) GetCharity(w http.ResponseWriter, r *http.Request) {
 	// Get charity details (main charity only, linked_charity_number = 0)
 	var charity models.Charity
 	var website, email, address, whatTheCharityDoes sql.NullString
-	err = h.DB.QueryRow(`
-		SELECT registered_number, name, status, date_registered, address, website,
-		       email, what_the_charity_does
-		FROM charities WHERE registered_number = ? AND linked_charity_number = 0
-	`, number).Scan(
+	b := sqlbuilder.Builder()
+	query, args, buildErr := b.Select(
+		"registered_number",
+		"name",
+		"status",
+		"date_registered",
+		"address",
+		"website",
+		"email",
+		"what_the_charity_does",
+	).From("charities").
+		Where(sq.Eq{"registered_number": number, "linked_charity_number": 0}).
+		ToSql()
+	if buildErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
+		return
+	}
+	err = h.DB.QueryRow(query, args...).Scan(
 		&charity.RegisteredNumber, &charity.Name, &charity.Status,
 		&charity.DateRegistered, &address, &website,
 		&email, &whatTheCharityDoes,
@@ -420,6 +465,8 @@ func (h *CharityHandler) CompareCharities(w http.ResponseWriter, r *http.Request
 	var charities []models.Charity
 	var scores []models.CharityScore
 
+	b := sqlbuilder.Builder()
+
 	for _, numStr := range numberStrs {
 		numStr = strings.TrimSpace(numStr)
 		number, err := strconv.Atoi(numStr)
@@ -429,10 +476,14 @@ func (h *CharityHandler) CompareCharities(w http.ResponseWriter, r *http.Request
 
 		var charity models.Charity
 		var address, website sql.NullString
-		err = h.DB.QueryRow(`
-			SELECT registered_number, name, status, address, website
-			FROM charities WHERE registered_number = ? AND linked_charity_number = 0
-		`, number).Scan(&charity.RegisteredNumber, &charity.Name, &charity.Status, &address, &website)
+		charitySQL, charityArgs, sqlErr := b.Select("registered_number", "name", "status", "address", "website").
+			From("charities").
+			Where(sq.Eq{"registered_number": number, "linked_charity_number": 0}).
+			ToSql()
+		if sqlErr != nil {
+			continue
+		}
+		err = h.DB.QueryRow(charitySQL, charityArgs...).Scan(&charity.RegisteredNumber, &charity.Name, &charity.Status, &address, &website)
 		if err == nil {
 			// Convert NullString to string
 			if address.Valid {
@@ -445,12 +496,19 @@ func (h *CharityHandler) CompareCharities(w http.ResponseWriter, r *http.Request
 			charities = append(charities, charity)
 
 			var score models.CharityScore
-			h.DB.QueryRow(`
-				SELECT overall_score, efficiency_score, financial_health_score,
-				       transparency_score, governance_score
-				FROM charity_scores WHERE charity_number = ?
-			`, number).Scan(&score.OverallScore, &score.EfficiencyScore, &score.FinancialHealthScore,
-				&score.TransparencyScore, &score.GovernanceScore)
+			scoreSQL, scoreArgs, sqlErr := b.Select(
+				"overall_score",
+				"efficiency_score",
+				"financial_health_score",
+				"transparency_score",
+				"governance_score",
+			).From("charity_scores").
+				Where(sq.Eq{"charity_number": number}).
+				ToSql()
+			if sqlErr == nil {
+				h.DB.QueryRow(scoreSQL, scoreArgs...).Scan(&score.OverallScore, &score.EfficiencyScore, &score.FinancialHealthScore,
+					&score.TransparencyScore, &score.GovernanceScore)
+			}
 			scores = append(scores, score)
 		}
 	}
@@ -492,6 +550,7 @@ func (h *CharityHandler) SyncData(w http.ResponseWriter, r *http.Request) {
 
 func (h *CharityHandler) processSearchResults(results []map[string]any, limit int) []models.Charity {
 	h.debugLog("PROCESSING SEARCH RESULTS: %d total", len(results))
+	b := sqlbuilder.Builder()
 	var charities []models.Charity
 	rmCount := 0
 
@@ -572,8 +631,14 @@ func (h *CharityHandler) processSearchResults(results []map[string]any, limit in
 			var exists bool
 			var hasScore bool
 
-			h.DB.QueryRow("SELECT 1 FROM charities WHERE registered_number = ?", charity.RegisteredNumber).Scan(&exists)
-			h.DB.QueryRow("SELECT 1 FROM charity_scores WHERE charity_number = ?", charity.RegisteredNumber).Scan(&hasScore)
+			existsSQL, existsArgs, sqlErr := b.Select("1").From("charities").Where(sq.Eq{"registered_number": charity.RegisteredNumber}).Limit(1).ToSql()
+			if sqlErr == nil {
+				h.DB.QueryRow(existsSQL, existsArgs...).Scan(&exists)
+			}
+			hasScoreSQL, hasScoreArgs, sqlErr := b.Select("1").From("charity_scores").Where(sq.Eq{"charity_number": charity.RegisteredNumber}).Limit(1).ToSql()
+			if sqlErr == nil {
+				h.DB.QueryRow(hasScoreSQL, hasScoreArgs...).Scan(&hasScore)
+			}
 
 			// Sync charity data if it doesn't exist
 			if !exists {
@@ -597,7 +662,10 @@ func (h *CharityHandler) processSearchResults(results []map[string]any, limit in
 				go func(charityNum int) {
 					// Check if charity has financial data (required for scoring)
 					var hasFinancials bool
-					h.DB.QueryRow("SELECT 1 FROM financials WHERE charity_number = ?", charityNum).Scan(&hasFinancials)
+					hasFinancialSQL, hasFinancialArgs, sqlErr := b.Select("1").From("financials").Where(sq.Eq{"charity_number": charityNum}).Limit(1).ToSql()
+					if sqlErr == nil {
+						h.DB.QueryRow(hasFinancialSQL, hasFinancialArgs...).Scan(&hasFinancials)
+					}
 
 					if hasFinancials {
 						if score, err := scoring.CalculateScore(h.DB, charityNum); err == nil {
@@ -619,4 +687,11 @@ func (h *CharityHandler) processSearchResults(results []map[string]any, limit in
 
 	h.debugLog("Returning %d charities from search (filtered %d RM charities)", len(charities), rmCount)
 	return charities
+}
+
+func searchCacheUpsertSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE last_searched = VALUES(last_searched), result_count = VALUES(result_count)"
+	}
+	return "ON CONFLICT (query, search_type) DO UPDATE SET last_searched = EXCLUDED.last_searched, result_count = EXCLUDED.result_count"
 }

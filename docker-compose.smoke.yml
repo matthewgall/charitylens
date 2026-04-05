@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: charitylens-smoke-postgres
+    environment:
+      POSTGRES_USER: charitylens
+      POSTGRES_PASSWORD: charitylens
+      POSTGRES_DB: charitylens
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U charitylens -d charitylens"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mysql:
+    image: mysql:8.4
+    container_name: charitylens-smoke-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: charitylens
+      MYSQL_USER: charitylens
+      MYSQL_PASSWORD: charitylens
+    command: ["--default-authentication-plugin=mysql_native_password"]
+    ports:
+      - "53306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "charitylens", "-pcharitylens"]
+      interval: 3s
+      timeout: 3s
+      retries: 25

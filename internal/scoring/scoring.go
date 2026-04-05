@@ -6,7 +6,10 @@ import (
 	"math"
 	"time"
 
+	"charitylens/internal/database/sqlbuilder"
 	"charitylens/internal/models"
+
+	sq "github.com/Masterminds/squirrel"
 )
 
 func CalculateScore(db *sql.DB, charityNumber int, cacheScore ...bool) (models.CharityScore, error) {
@@ -19,15 +22,20 @@ func CalculateScore(db *sql.DB, charityNumber int, cacheScore ...bool) (models.C
 		CharityNumber:  charityNumber,
 		LastCalculated: time.Now(),
 	}
+	b := sqlbuilder.Builder()
 
 	// Get charity info (main charity only)
 	var charity models.Charity
 	var website sql.NullString
 	var lastUpdated sql.NullTime
-	err := db.QueryRow(`
-		SELECT registered_number, name, website, last_updated
-		FROM charities WHERE registered_number = ? AND linked_charity_number = 0
-	`, charityNumber).Scan(&charity.RegisteredNumber, &charity.Name, &website, &lastUpdated)
+	charitySQL, charityArgs, err := b.Select("registered_number", "name", "website", "last_updated").
+		From("charities").
+		Where(sq.Eq{"registered_number": charityNumber, "linked_charity_number": 0}).
+		ToSql()
+	if err != nil {
+		return score, err
+	}
+	err = db.QueryRow(charitySQL, charityArgs...).Scan(&charity.RegisteredNumber, &charity.Name, &website, &lastUpdated)
 	if err != nil {
 		return score, err
 	}
@@ -42,18 +50,30 @@ func CalculateScore(db *sql.DB, charityNumber int, cacheScore ...bool) (models.C
 
 	// Get latest financial data
 	var fin models.Financial
-	err = db.QueryRow(`
-		SELECT total_income, total_spending, charitable_activities_spend, reserves, assets, COALESCE(trustees, 0)
-		FROM financials WHERE charity_number = ?
-		ORDER BY financial_year_end DESC LIMIT 1
-	`, charityNumber).Scan(&fin.TotalIncome, &fin.TotalSpending, &fin.CharitableActivitiesSpend, &fin.Reserves, &fin.Assets, &fin.Trustees)
+	financialSQL, financialArgs, err := b.Select(
+		"total_income",
+		"total_spending",
+		"charitable_activities_spend",
+		"reserves",
+		"assets",
+		"COALESCE(trustees, 0)",
+	).From("financials").
+		Where(sq.Eq{"charity_number": charityNumber}).
+		OrderBy("financial_year_end DESC").
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return score, err
+	}
+	err = db.QueryRow(financialSQL, financialArgs...).Scan(&fin.TotalIncome, &fin.TotalSpending, &fin.CharitableActivitiesSpend, &fin.Reserves, &fin.Assets, &fin.Trustees)
 	hasFinancial := err == nil
 
 	// Get trustee count
 	var trusteeCount int
-	db.QueryRow(`
-		SELECT COUNT(*) FROM trustees WHERE charity_number = ?
-	`, charityNumber).Scan(&trusteeCount)
+	trusteeSQL, trusteeArgs, err := b.Select("COUNT(*)").From("trustees").Where(sq.Eq{"charity_number": charityNumber}).ToSql()
+	if err == nil {
+		db.QueryRow(trusteeSQL, trusteeArgs...).Scan(&trusteeCount)
+	}
 
 	// Calculate Efficiency Score (40%)
 	var efficiencyScore float64
@@ -176,12 +196,33 @@ func CalculateScore(db *sql.DB, charityNumber int, cacheScore ...bool) (models.C
 
 	// Store the score in the database (unless caching is disabled)
 	if shouldCache {
-		_, err = db.Exec(`
-			INSERT OR REPLACE INTO charity_scores
-			(charity_number, overall_score, efficiency_score, financial_health_score, transparency_score, governance_score, confidence_level, last_calculated)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			score.CharityNumber, score.OverallScore, score.EfficiencyScore, score.FinancialHealthScore,
-			score.TransparencyScore, score.GovernanceScore, score.ConfidenceLevel, score.LastCalculated)
+		cacheSQL, cacheArgs, sqlErr := b.Insert("charity_scores").
+			Columns(
+				"charity_number",
+				"overall_score",
+				"efficiency_score",
+				"financial_health_score",
+				"transparency_score",
+				"governance_score",
+				"confidence_level",
+				"last_calculated",
+			).
+			Values(
+				score.CharityNumber,
+				score.OverallScore,
+				score.EfficiencyScore,
+				score.FinancialHealthScore,
+				score.TransparencyScore,
+				score.GovernanceScore,
+				score.ConfidenceLevel,
+				score.LastCalculated,
+			).
+			Suffix(upsertCharityScoreSuffix()).
+			ToSql()
+		if sqlErr != nil {
+			return score, sqlErr
+		}
+		_, err = db.Exec(cacheSQL, cacheArgs...)
 		if err != nil {
 			log.Printf("Failed to store score for charity %d: %v", charityNumber, err)
 			return score, err
@@ -194,15 +235,19 @@ func CalculateScore(db *sql.DB, charityNumber int, cacheScore ...bool) (models.C
 // calculateFilingTimeliness checks if annual returns were filed on time in the last 3 years
 // Returns a score from 0-100
 func calculateFilingTimeliness(db *sql.DB, charityNumber int) float64 {
+	b := sqlbuilder.Builder()
 	// Get the last 3 filing records
-	rows, err := db.Query(`
-		SELECT reporting_due_date, date_annual_return_received, date_accounts_received
-		FROM annual_return_history
-		WHERE registered_charity_number = ?
-		AND reporting_due_date IS NOT NULL
-		ORDER BY fin_period_end_date DESC
-		LIMIT 3
-	`, charityNumber)
+	query, args, err := b.Select("reporting_due_date", "date_annual_return_received", "date_accounts_received").
+		From("annual_return_history").
+		Where(sq.Eq{"registered_charity_number": charityNumber}).
+		Where("reporting_due_date IS NOT NULL").
+		OrderBy("fin_period_end_date DESC").
+		Limit(3).
+		ToSql()
+	if err != nil {
+		return 50
+	}
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return 50 // Neutral score if no data
 	}
@@ -245,14 +290,19 @@ func calculateFilingTimeliness(db *sql.DB, charityNumber int) float64 {
 // calculateFilingConsistency checks for gaps in filing history over the last 5 years
 // Returns a score from 0-100
 func calculateFilingConsistency(db *sql.DB, charityNumber int) float64 {
+	b := sqlbuilder.Builder()
+	cutoffDate := time.Now().AddDate(-5, 0, 0)
 	// Get filing records from the last 5 years
-	rows, err := db.Query(`
-		SELECT ar_cycle_reference, date_annual_return_received
-		FROM annual_return_history
-		WHERE registered_charity_number = ?
-		AND fin_period_end_date >= date('now', '-5 years')
-		ORDER BY fin_period_end_date DESC
-	`, charityNumber)
+	query, args, err := b.Select("ar_cycle_reference", "date_annual_return_received").
+		From("annual_return_history").
+		Where(sq.Eq{"registered_charity_number": charityNumber}).
+		Where(sq.GtOrEq{"fin_period_end_date": cutoffDate}).
+		OrderBy("fin_period_end_date DESC").
+		ToSql()
+	if err != nil {
+		return 50
+	}
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return 50 // Neutral score if no data
 	}
@@ -287,19 +337,24 @@ func calculateFilingConsistency(db *sql.DB, charityNumber int) float64 {
 // calculateAccountsQuality checks for qualified accounts (audit issues) in recent years
 // Returns a score from 0-100
 func calculateAccountsQuality(db *sql.DB, charityNumber int) float64 {
+	b := sqlbuilder.Builder()
+	cutoffDate := time.Now().AddDate(-3, 0, 0)
 	// Check last 3 years for qualified accounts
 	var qualifiedCount int
 	var totalCount int
 
-	err := db.QueryRow(`
-		SELECT 
-			COUNT(*) as total,
-			SUM(CASE WHEN accounts_qualified = 1 THEN 1 ELSE 0 END) as qualified
-		FROM annual_return_history
-		WHERE registered_charity_number = ?
-		AND accounts_qualified IS NOT NULL
-		AND fin_period_end_date >= date('now', '-3 years')
-	`, charityNumber).Scan(&totalCount, &qualifiedCount)
+	query, args, err := b.Select(
+		"COUNT(*) as total",
+		"SUM(CASE WHEN accounts_qualified = TRUE THEN 1 ELSE 0 END) as qualified",
+	).From("annual_return_history").
+		Where(sq.Eq{"registered_charity_number": charityNumber}).
+		Where("accounts_qualified IS NOT NULL").
+		Where(sq.GtOrEq{"fin_period_end_date": cutoffDate}).
+		ToSql()
+	if err != nil {
+		return 100
+	}
+	err = db.QueryRow(query, args...).Scan(&totalCount, &qualifiedCount)
 
 	if err != nil || totalCount == 0 {
 		return 100 // Assume good quality if no data (benefit of doubt)
@@ -313,4 +368,11 @@ func calculateAccountsQuality(db *sql.DB, charityNumber int) float64 {
 	}
 
 	return 100 // No qualified accounts = perfect score
+}
+
+func upsertCharityScoreSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE overall_score = VALUES(overall_score), efficiency_score = VALUES(efficiency_score), financial_health_score = VALUES(financial_health_score), transparency_score = VALUES(transparency_score), governance_score = VALUES(governance_score), confidence_level = VALUES(confidence_level), last_calculated = VALUES(last_calculated)"
+	}
+	return "ON CONFLICT (charity_number) DO UPDATE SET overall_score = EXCLUDED.overall_score, efficiency_score = EXCLUDED.efficiency_score, financial_health_score = EXCLUDED.financial_health_score, transparency_score = EXCLUDED.transparency_score, governance_score = EXCLUDED.governance_score, confidence_level = EXCLUDED.confidence_level, last_calculated = EXCLUDED.last_calculated"
 }

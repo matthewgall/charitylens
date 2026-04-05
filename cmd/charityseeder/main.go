@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -16,8 +17,10 @@ import (
 
 	"charitylens/internal/api"
 	"charitylens/internal/database"
+	"charitylens/internal/database/sqlbuilder"
 	"charitylens/internal/downloader"
 	"charitylens/internal/importer"
+	sq "github.com/Masterminds/squirrel"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/schollz/progressbar/v3"
 )
@@ -251,7 +254,8 @@ func runDownloadImport(config *Config, db *sql.DB) error {
 	ctx := context.Background()
 
 	log.Println("=== Download Import Mode ===")
-	log.Println("Downloading Charity Commission data files...")
+	log.Println("Downloading and importing Charity Commission data files...")
+	log.Println("Note: Files are processed one at a time to minimize memory usage")
 
 	// Create downloader with progress tracking
 	dl := downloader.NewDownloader(downloader.Config{
@@ -269,15 +273,6 @@ func runDownloadImport(config *Config, db *sql.DB) error {
 		},
 	})
 
-	// Download all required files in parallel
-	files, err := dl.DownloadFiles(ctx, downloader.DefaultFileSet())
-	if err != nil {
-		return fmt.Errorf("failed to download files: %w", err)
-	}
-
-	log.Printf("\nAll files downloaded successfully!")
-	log.Printf("Total data size: %.2f MB\n", float64(calculateTotalSize(files))/1024.0/1024.0)
-
 	// Create importer
 	imp := importer.NewImporter(db, importer.ImportConfig{
 		BatchSize:        config.BatchSize,
@@ -285,47 +280,60 @@ func runDownloadImport(config *Config, db *sql.DB) error {
 		Verbose:          config.Verbose,
 	})
 
-	// Import charities from in-memory data
-	log.Println("[1/4] Importing charities from downloaded data...")
-	if charityFile, ok := files[downloader.FileCharity]; ok {
-		if err := imp.ImportCharitiesFromReader(charityFile.GetReader()); err != nil {
-			return fmt.Errorf("failed to import charities: %w", err)
-		}
-	} else {
-		return fmt.Errorf("charity file not downloaded")
-	}
+	// Process each file sequentially to avoid loading everything into memory at once
+	// This reduces peak memory usage significantly
 
-	// Import trustees from in-memory data
-	log.Println("\n[2/4] Importing trustees from downloaded data...")
-	if trusteeFile, ok := files[downloader.FileCharityTrustee]; ok {
-		if err := imp.ImportTrusteesFromReader(trusteeFile.GetReader()); err != nil {
-			return fmt.Errorf("failed to import trustees: %w", err)
-		}
-	} else {
-		return fmt.Errorf("trustee file not downloaded")
+	// 1. Charities
+	log.Println("\n[1/5] Downloading and importing charities...")
+	charityFile, err := dl.DownloadFile(ctx, downloader.FileCharity)
+	if err != nil {
+		return fmt.Errorf("failed to download charity file: %w", err)
 	}
+	if err := imp.ImportCharitiesFromReader(charityFile.GetReader()); err != nil {
+		return fmt.Errorf("failed to import charities: %w", err)
+	}
+	charityFile = nil // Allow GC to reclaim memory
+	runtime.GC()      // Hint to GC to reclaim memory immediately
 
-	// Import financial data from in-memory data
-	log.Println("\n[3/5] Importing financial data from downloaded data...")
-	if financialFile, ok := files[downloader.FileCharityAnnualReturnB]; ok {
+	// 2. Trustees
+	log.Println("\n[2/5] Downloading and importing trustees...")
+	trusteeFile, err := dl.DownloadFile(ctx, downloader.FileCharityTrustee)
+	if err != nil {
+		return fmt.Errorf("failed to download trustee file: %w", err)
+	}
+	if err := imp.ImportTrusteesFromReader(trusteeFile.GetReader()); err != nil {
+		return fmt.Errorf("failed to import trustees: %w", err)
+	}
+	trusteeFile = nil // Allow GC to reclaim memory
+	runtime.GC()      // Hint to GC to reclaim memory immediately
+
+	// 3. Financial data
+	log.Println("\n[3/5] Downloading and importing financial data...")
+	financialFile, err := dl.DownloadFile(ctx, downloader.FileCharityAnnualReturnB)
+	if err != nil {
+		log.Printf("Warning: Failed to download financial file: %v", err)
+	} else {
 		if err := imp.ImportFinancialsFromReader(financialFile.GetReader()); err != nil {
-			return fmt.Errorf("failed to import financials: %w", err)
+			log.Printf("Warning: Failed to import financials: %v", err)
 		}
-	} else {
-		log.Println("Warning: Financial file not downloaded, skipping detailed financial data")
+		financialFile = nil // Allow GC to reclaim memory
+		runtime.GC()        // Hint to GC to reclaim memory immediately
 	}
 
-	// Import annual return history from in-memory data
-	log.Println("\n[4/5] Importing annual return history from downloaded data...")
-	if historyFile, ok := files[downloader.FileCharityAnnualReturnHist]; ok {
+	// 4. Annual return history
+	log.Println("\n[4/5] Downloading and importing annual return history...")
+	historyFile, err := dl.DownloadFile(ctx, downloader.FileCharityAnnualReturnHist)
+	if err != nil {
+		log.Printf("Warning: Failed to download annual return history file: %v", err)
+	} else {
 		if err := imp.ImportAnnualReturnHistoryFromReader(historyFile.GetReader()); err != nil {
 			log.Printf("Warning: Failed to import annual return history: %v", err)
 		}
-	} else {
-		log.Println("Warning: Annual return history file not downloaded, scoring will have limited transparency metrics")
+		historyFile = nil // Allow GC to reclaim memory
+		runtime.GC()      // Hint to GC to reclaim memory immediately
 	}
 
-	// Calculate scores
+	// 5. Calculate scores
 	log.Println("\n[5/5] Calculating scores for all charities...")
 	if err := imp.CalculateAllScores(); err != nil {
 		log.Printf("Warning: Failed to calculate all scores: %v (import was successful)", err)
@@ -333,14 +341,6 @@ func runDownloadImport(config *Config, db *sql.DB) error {
 
 	log.Println("\n=== Download Import Complete ===")
 	return nil
-}
-
-func calculateTotalSize(files map[downloader.FileType]*downloader.DownloadedFile) int64 {
-	var total int64
-	for _, file := range files {
-		total += file.Size
-	}
-	return total
 }
 
 func runAPIScrape(config *Config, db *sql.DB) error {
@@ -474,13 +474,16 @@ func loadCheckpoint(db *sql.DB) (int, error) {
 }
 
 func saveCheckpoint(db *sql.DB, charityNumber int) error {
-	_, err := db.Exec(`
-		INSERT INTO scraper_checkpoints (id, last_charity_number, updated_at)
-		VALUES (1, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(id) DO UPDATE SET 
-			last_charity_number = excluded.last_charity_number,
-			updated_at = CURRENT_TIMESTAMP
-	`, charityNumber)
+	b := sqlbuilder.Builder()
+	checkpointSQL, checkpointArgs, err := b.Insert("scraper_checkpoints").
+		Columns("id", "last_charity_number", "updated_at").
+		Values(1, charityNumber, sq.Expr("CURRENT_TIMESTAMP")).
+		Suffix(scraperCheckpointUpsertSuffix()).
+		ToSql()
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(checkpointSQL, checkpointArgs...)
 	return err
 }
 
@@ -575,7 +578,12 @@ func (s *Scraper) worker(workerID int, workQueue <-chan int) {
 func (s *Scraper) processCharity(charityNum int) error {
 	// Check if charity already exists
 	var exists bool
-	err := s.db.QueryRow("SELECT 1 FROM charities WHERE registered_number = ?", charityNum).Scan(&exists)
+	b := sqlbuilder.Builder()
+	existsSQL, existsArgs, err := b.Select("1").From("charities").Where(sq.Eq{"registered_number": charityNum}).Limit(1).ToSql()
+	if err != nil {
+		return err
+	}
+	err = s.db.QueryRow(existsSQL, existsArgs...).Scan(&exists)
 	if err == nil {
 		s.stats.mu.Lock()
 		s.stats.Skipped++
@@ -612,15 +620,49 @@ func (s *Scraper) storeCharity(data map[string]any, charityNum int) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse charity: %w", err)
 	}
+	if charity.OrganisationNumber == 0 {
+		charity.OrganisationNumber = charity.RegisteredNumber
+	}
+	b := sqlbuilder.Builder()
 
 	// Insert charity
-	_, err = tx.Exec(`
-		INSERT OR REPLACE INTO charities
-		(registered_number, company_number, name, status, date_registered, address, website, email, phone, what_the_charity_does, last_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, charity.RegisteredNumber, charity.CompanyNumber, charity.Name, charity.Status,
-		charity.DateRegistered, charity.Address, charity.Website, charity.Email, charity.Phone,
-		charity.WhatTheCharityDoes, charity.LastUpdated)
+	charitySQL, charityArgs, err := b.Insert("charities").
+		Columns(
+			"organisation_number",
+			"registered_number",
+			"linked_charity_number",
+			"company_number",
+			"name",
+			"status",
+			"date_registered",
+			"address",
+			"website",
+			"email",
+			"phone",
+			"what_the_charity_does",
+			"last_updated",
+		).
+		Values(
+			charity.OrganisationNumber,
+			charity.RegisteredNumber,
+			charity.LinkedCharityNumber,
+			charity.CompanyNumber,
+			charity.Name,
+			charity.Status,
+			charity.DateRegistered,
+			charity.Address,
+			charity.Website,
+			charity.Email,
+			charity.Phone,
+			charity.WhatTheCharityDoes,
+			charity.LastUpdated,
+		).
+		Suffix(scraperCharityUpsertSuffix()).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("failed to build charity insert: %w", err)
+	}
+	_, err = tx.Exec(charitySQL, charityArgs...)
 	if err != nil {
 		return fmt.Errorf("failed to insert charity: %w", err)
 	}
@@ -628,14 +670,39 @@ func (s *Scraper) storeCharity(data map[string]any, charityNum int) error {
 	// Parse and store financials using shared parser
 	financial, err := api.ParseFinancialData(data, charityNum)
 	if err == nil && (financial.TotalIncome > 0 || financial.TotalSpending > 0) {
-		_, err = tx.Exec(`
-			INSERT OR REPLACE INTO financials
-			(charity_number, financial_year_end, total_income, total_spending, charitable_activities_spend,
-			 raising_funds_spend, other_spend, reserves, assets, trustees, last_updated)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, financial.CharityNumber, financial.FinancialYearEnd, financial.TotalIncome, financial.TotalSpending,
-			financial.CharitableActivitiesSpend, financial.RaisingFundsSpend, financial.OtherSpend,
-			financial.Reserves, financial.Assets, financial.Trustees, financial.LastUpdated)
+		financialSQL, financialArgs, sqlErr := b.Insert("financials").
+			Columns(
+				"charity_number",
+				"financial_year_end",
+				"total_income",
+				"total_spending",
+				"charitable_activities_spend",
+				"raising_funds_spend",
+				"other_spend",
+				"reserves",
+				"assets",
+				"trustees",
+				"last_updated",
+			).
+			Values(
+				financial.CharityNumber,
+				financial.FinancialYearEnd,
+				financial.TotalIncome,
+				financial.TotalSpending,
+				financial.CharitableActivitiesSpend,
+				financial.RaisingFundsSpend,
+				financial.OtherSpend,
+				financial.Reserves,
+				financial.Assets,
+				financial.Trustees,
+				financial.LastUpdated,
+			).
+			Suffix(scraperFinancialUpsertSuffix()).
+			ToSql()
+		if sqlErr != nil {
+			return fmt.Errorf("failed to build financial insert: %w", sqlErr)
+		}
+		_, err = tx.Exec(financialSQL, financialArgs...)
 		if err != nil {
 			return fmt.Errorf("failed to insert financial: %w", err)
 		}
@@ -644,16 +711,49 @@ func (s *Scraper) storeCharity(data map[string]any, charityNum int) error {
 	// Parse and store trustees using shared parser
 	trustees := api.ParseTrusteesData(data, charityNum)
 	for _, trustee := range trustees {
-		_, err = tx.Exec(`
-			INSERT OR REPLACE INTO trustees (charity_number, name, last_updated)
-			VALUES (?, ?, ?)
-		`, trustee.CharityNumber, trustee.Name, trustee.LastUpdated)
+		trusteeSQL, trusteeArgs, sqlErr := b.Insert("trustees").
+			Columns("charity_number", "name", "last_updated").
+			Values(trustee.CharityNumber, trustee.Name, trustee.LastUpdated).
+			Suffix(scraperTrusteeUpsertSuffix()).
+			ToSql()
+		if sqlErr != nil {
+			return fmt.Errorf("failed to build trustee insert: %w", sqlErr)
+		}
+		_, err = tx.Exec(trusteeSQL, trusteeArgs...)
 		if err != nil {
 			return fmt.Errorf("failed to insert trustee: %w", err)
 		}
 	}
 
 	return tx.Commit()
+}
+
+func scraperCheckpointUpsertSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE last_charity_number = VALUES(last_charity_number), updated_at = VALUES(updated_at)"
+	}
+	return "ON CONFLICT (id) DO UPDATE SET last_charity_number = EXCLUDED.last_charity_number, updated_at = EXCLUDED.updated_at"
+}
+
+func scraperCharityUpsertSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE registered_number = VALUES(registered_number), linked_charity_number = VALUES(linked_charity_number), company_number = VALUES(company_number), name = VALUES(name), status = VALUES(status), date_registered = VALUES(date_registered), address = VALUES(address), website = VALUES(website), email = VALUES(email), phone = VALUES(phone), what_the_charity_does = VALUES(what_the_charity_does), last_updated = VALUES(last_updated)"
+	}
+	return "ON CONFLICT (organisation_number) DO UPDATE SET registered_number = EXCLUDED.registered_number, linked_charity_number = EXCLUDED.linked_charity_number, company_number = EXCLUDED.company_number, name = EXCLUDED.name, status = EXCLUDED.status, date_registered = EXCLUDED.date_registered, address = EXCLUDED.address, website = EXCLUDED.website, email = EXCLUDED.email, phone = EXCLUDED.phone, what_the_charity_does = EXCLUDED.what_the_charity_does, last_updated = EXCLUDED.last_updated"
+}
+
+func scraperFinancialUpsertSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE total_income = VALUES(total_income), total_spending = VALUES(total_spending), charitable_activities_spend = VALUES(charitable_activities_spend), raising_funds_spend = VALUES(raising_funds_spend), other_spend = VALUES(other_spend), reserves = VALUES(reserves), assets = VALUES(assets), trustees = VALUES(trustees), last_updated = VALUES(last_updated)"
+	}
+	return "ON CONFLICT (charity_number, financial_year_end) DO UPDATE SET total_income = EXCLUDED.total_income, total_spending = EXCLUDED.total_spending, charitable_activities_spend = EXCLUDED.charitable_activities_spend, raising_funds_spend = EXCLUDED.raising_funds_spend, other_spend = EXCLUDED.other_spend, reserves = EXCLUDED.reserves, assets = EXCLUDED.assets, trustees = EXCLUDED.trustees, last_updated = EXCLUDED.last_updated"
+}
+
+func scraperTrusteeUpsertSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE last_updated = VALUES(last_updated)"
+	}
+	return "ON CONFLICT (charity_number, name) DO UPDATE SET last_updated = EXCLUDED.last_updated"
 }
 
 func (s *Scraper) printFinalStats() {

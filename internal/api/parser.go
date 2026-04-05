@@ -13,6 +13,19 @@ func ParseCharityData(data map[string]any, charityNum string) (models.Charity, e
 		LastUpdated: time.Now(),
 	}
 
+	if org, ok := data["organisation_number"]; ok && org != nil {
+		switch v := org.(type) {
+		case float64:
+			charity.OrganisationNumber = int(v)
+		case int:
+			charity.OrganisationNumber = v
+		case string:
+			if parsed, err := strconv.Atoi(v); err == nil {
+				charity.OrganisationNumber = parsed
+			}
+		}
+	}
+
 	// Parse registered number - prioritize charity number over company number
 	possibleRegNumFields := []string{"reg_charity_number", "organisation_number", "registered_charity_number"}
 	for _, field := range possibleRegNumFields {
@@ -46,6 +59,9 @@ func ParseCharityData(data map[string]any, charityNum string) (models.Charity, e
 	// If still 0, use the requested charity number
 	if charity.RegisteredNumber == 0 {
 		charity.RegisteredNumber, _ = strconv.Atoi(charityNum)
+	}
+	if charity.OrganisationNumber == 0 {
+		charity.OrganisationNumber = charity.RegisteredNumber
 	}
 
 	// Parse name (charity_name)

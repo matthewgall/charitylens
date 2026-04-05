@@ -9,97 +9,136 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"time"
 
+	"charitylens/internal/database/sqlbuilder"
 	"charitylens/internal/scoring"
 )
 
+// FlexibleBool is a custom type that can unmarshal from both bool and string
+type FlexibleBool struct {
+	Value bool
+	Valid bool
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for FlexibleBool
+func (fb *FlexibleBool) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as bool first
+	var b bool
+	if err := json.Unmarshal(data, &b); err == nil {
+		fb.Value = b
+		fb.Valid = true
+		return nil
+	}
+
+	// Try to unmarshal as string
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		s = strings.ToUpper(strings.TrimSpace(s))
+		if s == "Y" || s == "YES" || s == "TRUE" || s == "1" {
+			fb.Value = true
+			fb.Valid = true
+		} else if s == "N" || s == "NO" || s == "FALSE" || s == "0" || s == "" {
+			fb.Value = false
+			fb.Valid = true
+		} else {
+			fb.Valid = false
+		}
+		return nil
+	}
+
+	// If null or invalid, mark as invalid
+	fb.Valid = false
+	return nil
+}
+
 // CharityRecord represents a charity record from the JSON dump
 type CharityRecord struct {
-	DateOfExtract                    string   `json:"date_of_extract"`
-	OrganisationNumber               int      `json:"organisation_number"`
-	RegisteredCharityNumber          int      `json:"registered_charity_number"`
-	LinkedCharityNumber              int      `json:"linked_charity_number"`
-	CharityName                      string   `json:"charity_name"`
-	CharityType                      *string  `json:"charity_type"`
-	CharityRegistrationStatus        string   `json:"charity_registration_status"`
-	DateOfRegistration               string   `json:"date_of_registration"`
-	DateOfRemoval                    *string  `json:"date_of_removal"`
-	CharityReportingStatus           *string  `json:"charity_reporting_status"`
-	LatestAccFinPeriodStartDate      *string  `json:"latest_acc_fin_period_start_date"`
-	LatestAccFinPeriodEndDate        *string  `json:"latest_acc_fin_period_end_date"`
-	LatestIncome                     *float64 `json:"latest_income"`
-	LatestExpenditure                *float64 `json:"latest_expenditure"`
-	CharityContactAddress1           *string  `json:"charity_contact_address1"`
-	CharityContactAddress2           *string  `json:"charity_contact_address2"`
-	CharityContactAddress3           *string  `json:"charity_contact_address3"`
-	CharityContactAddress4           *string  `json:"charity_contact_address4"`
-	CharityContactAddress5           *string  `json:"charity_contact_address5"`
-	CharityContactPostcode           *string  `json:"charity_contact_postcode"`
-	CharityContactPhone              *string  `json:"charity_contact_phone"`
-	CharityContactEmail              *string  `json:"charity_contact_email"`
-	CharityContactWeb                *string  `json:"charity_contact_web"`
-	CharityCompanyRegistrationNumber *string  `json:"charity_company_registration_number"`
-	CharityInsolvent                 bool     `json:"charity_insolvent"`
-	CharityInAdministration          bool     `json:"charity_in_administration"`
-	CharityPreviouslyExcepted        *bool    `json:"charity_previously_excepted"`
-	CharityIsCDFOrCIF                *bool    `json:"charity_is_cdf_or_cif"`
-	CharityIsCIO                     *bool    `json:"charity_is_cio"`
-	CIOIsDissolved                   *bool    `json:"cio_is_dissolved"`
-	DateCIODissolutionNotice         *string  `json:"date_cio_dissolution_notice"`
-	CharityActivities                *string  `json:"charity_activities"`
-	CharityGiftAid                   *bool    `json:"charity_gift_aid"`
-	CharityHasLand                   *bool    `json:"charity_has_land"`
+	DateOfExtract                    string        `json:"date_of_extract"`
+	OrganisationNumber               int           `json:"organisation_number"`
+	RegisteredCharityNumber          int           `json:"registered_charity_number"`
+	LinkedCharityNumber              int           `json:"linked_charity_number"`
+	CharityName                      string        `json:"charity_name"`
+	CharityType                      *string       `json:"charity_type"`
+	CharityRegistrationStatus        string        `json:"charity_registration_status"`
+	DateOfRegistration               string        `json:"date_of_registration"`
+	DateOfRemoval                    *string       `json:"date_of_removal"`
+	CharityReportingStatus           *string       `json:"charity_reporting_status"`
+	LatestAccFinPeriodStartDate      *string       `json:"latest_acc_fin_period_start_date"`
+	LatestAccFinPeriodEndDate        *string       `json:"latest_acc_fin_period_end_date"`
+	LatestIncome                     *float64      `json:"latest_income"`
+	LatestExpenditure                *float64      `json:"latest_expenditure"`
+	CharityContactAddress1           *string       `json:"charity_contact_address1"`
+	CharityContactAddress2           *string       `json:"charity_contact_address2"`
+	CharityContactAddress3           *string       `json:"charity_contact_address3"`
+	CharityContactAddress4           *string       `json:"charity_contact_address4"`
+	CharityContactAddress5           *string       `json:"charity_contact_address5"`
+	CharityContactPostcode           *string       `json:"charity_contact_postcode"`
+	CharityContactPhone              *string       `json:"charity_contact_phone"`
+	CharityContactEmail              *string       `json:"charity_contact_email"`
+	CharityContactWeb                *string       `json:"charity_contact_web"`
+	CharityCompanyRegistrationNumber *string       `json:"charity_company_registration_number"`
+	CharityInsolvent                 FlexibleBool  `json:"charity_insolvent"`
+	CharityInAdministration          FlexibleBool  `json:"charity_in_administration"`
+	CharityPreviouslyExcepted        *FlexibleBool `json:"charity_previously_excepted"`
+	CharityIsCDFOrCIF                *FlexibleBool `json:"charity_is_cdf_or_cif"`
+	CharityIsCIO                     *FlexibleBool `json:"charity_is_cio"`
+	CIOIsDissolved                   *FlexibleBool `json:"cio_is_dissolved"`
+	DateCIODissolutionNotice         *string       `json:"date_cio_dissolution_notice"`
+	CharityActivities                *string       `json:"charity_activities"`
+	CharityGiftAid                   *FlexibleBool `json:"charity_gift_aid"`
+	CharityHasLand                   *FlexibleBool `json:"charity_has_land"`
 }
 
 // TrusteeRecord represents a trustee record from the JSON dump
 type TrusteeRecord struct {
-	DateOfExtract            string  `json:"date_of_extract"`
-	OrganisationNumber       int     `json:"organisation_number"`
-	RegisteredCharityNumber  int     `json:"registered_charity_number"`
-	LinkedCharityNumber      int     `json:"linked_charity_number"`
-	TrusteeID                int     `json:"trustee_id"`
-	TrusteeName              string  `json:"trustee_name"`
-	TrusteeIsChair           bool    `json:"trustee_is_chair"`
-	IndividualOrOrganisation string  `json:"individual_or_organisation"`
-	TrusteeDateOfAppointment *string `json:"trustee_date_of_appointment"`
+	DateOfExtract            string       `json:"date_of_extract"`
+	OrganisationNumber       int          `json:"organisation_number"`
+	RegisteredCharityNumber  int          `json:"registered_charity_number"`
+	LinkedCharityNumber      int          `json:"linked_charity_number"`
+	TrusteeID                int          `json:"trustee_id"`
+	TrusteeName              string       `json:"trustee_name"`
+	TrusteeIsChair           FlexibleBool `json:"trustee_is_chair"`
+	IndividualOrOrganisation string       `json:"individual_or_organisation"`
+	TrusteeDateOfAppointment *string      `json:"trustee_date_of_appointment"`
 }
 
 // AnnualReturnPartBRecord represents detailed financial data from annual returns
 type AnnualReturnPartBRecord struct {
-	DateOfExtract                string   `json:"date_of_extract"`
-	OrganisationNumber           int      `json:"organisation_number"`
-	RegisteredCharityNumber      int      `json:"registered_charity_number"`
-	LatestFinPeriodSubmittedInd  bool     `json:"latest_fin_period_submitted_ind"`
-	FinPeriodOrderNumber         int      `json:"fin_period_order_number"`
-	FinPeriodStartDate           string   `json:"fin_period_start_date"`
-	FinPeriodEndDate             string   `json:"fin_period_end_date"`
-	ARReceivedDate               *string  `json:"ar_received_date"`
-	IncomeTotalIncomeEndowments  *float64 `json:"income_total_income_and_endowments"`
-	ExpenditureCharitableExpend  *float64 `json:"expenditure_charitable_expenditure"`
-	ExpenditureRaisingFunds      *float64 `json:"expenditure_raising_funds"`
-	ExpenditureGovernance        *float64 `json:"expenditure_governance"`
-	ExpenditureTotal             *float64 `json:"expenditure_total"`
-	Reserves                     *float64 `json:"reserves"`
-	AssetsTotalAssetsLiabilities *float64 `json:"assets_total_assets_and_liabilities"`
-	CountEmployees               *int     `json:"count_employees"`
+	DateOfExtract                string       `json:"date_of_extract"`
+	OrganisationNumber           int          `json:"organisation_number"`
+	RegisteredCharityNumber      int          `json:"registered_charity_number"`
+	LatestFinPeriodSubmittedInd  FlexibleBool `json:"latest_fin_period_submitted_ind"`
+	FinPeriodOrderNumber         int          `json:"fin_period_order_number"`
+	FinPeriodStartDate           string       `json:"fin_period_start_date"`
+	FinPeriodEndDate             string       `json:"fin_period_end_date"`
+	ARReceivedDate               *string      `json:"ar_received_date"`
+	IncomeTotalIncomeEndowments  *float64     `json:"income_total_income_and_endowments"`
+	ExpenditureCharitableExpend  *float64     `json:"expenditure_charitable_expenditure"`
+	ExpenditureRaisingFunds      *float64     `json:"expenditure_raising_funds"`
+	ExpenditureGovernance        *float64     `json:"expenditure_governance"`
+	ExpenditureTotal             *float64     `json:"expenditure_total"`
+	Reserves                     *float64     `json:"reserves"`
+	AssetsTotalAssetsLiabilities *float64     `json:"assets_total_assets_and_liabilities"`
+	CountEmployees               *int         `json:"count_employees"`
 }
 
 type AnnualReturnHistoryRecord struct {
-	DateOfExtract            string   `json:"date_of_extract"`
-	OrganisationNumber       int      `json:"organisation_number"`
-	RegisteredCharityNumber  int      `json:"registered_charity_number"`
-	FinPeriodStartDate       *string  `json:"fin_period_start_date"`
-	FinPeriodEndDate         *string  `json:"fin_period_end_date"`
-	ARCycleReference         string   `json:"ar_cycle_reference"`
-	ReportingDueDate         *string  `json:"reporting_due_date"`
-	DateAnnualReturnReceived *string  `json:"date_annual_return_received"`
-	DateAccountsReceived     *string  `json:"date_accounts_received"`
-	TotalGrossIncome         *float64 `json:"total_gross_income"`
-	TotalGrossExpenditure    *float64 `json:"total_gross_expenditure"`
-	AccountsQualified        *bool    `json:"accounts_qualified"`
-	SuppressionInd           bool     `json:"suppression_ind"`
-	SuppressionType          *string  `json:"suppression_type"`
+	DateOfExtract            string        `json:"date_of_extract"`
+	OrganisationNumber       int           `json:"organisation_number"`
+	RegisteredCharityNumber  int           `json:"registered_charity_number"`
+	FinPeriodStartDate       *string       `json:"fin_period_start_date"`
+	FinPeriodEndDate         *string       `json:"fin_period_end_date"`
+	ARCycleReference         string        `json:"ar_cycle_reference"`
+	ReportingDueDate         *string       `json:"reporting_due_date"`
+	DateAnnualReturnReceived *string       `json:"date_annual_return_received"`
+	DateAccountsReceived     *string       `json:"date_accounts_received"`
+	TotalGrossIncome         *float64      `json:"total_gross_income"`
+	TotalGrossExpenditure    *float64      `json:"total_gross_expenditure"`
+	AccountsQualified        *FlexibleBool `json:"accounts_qualified"`
+	SuppressionInd           FlexibleBool  `json:"suppression_ind"`
+	SuppressionType          *string       `json:"suppression_type"`
 }
 
 // ImportProgress tracks import progress
@@ -390,7 +429,7 @@ func (i *Importer) importFinancialsFromReader(reader io.Reader) error {
 		}
 
 		// Only process latest period for each charity to avoid duplicates
-		if record.LatestFinPeriodSubmittedInd {
+		if record.LatestFinPeriodSubmittedInd.Value {
 			batch = append(batch, record)
 		} else {
 			i.progress.SkippedRecords++
@@ -431,18 +470,7 @@ func (i *Importer) insertCharityBatch(records []CharityRecord) error {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
-
-	stmt, err := tx.Prepare(`
-		INSERT OR REPLACE INTO charities
-		(organisation_number, registered_number, linked_charity_number, company_number, 
-		 name, status, date_registered, date_removed, 
-		 address, website, email, phone, what_the_charity_does, last_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer stmt.Close()
+	b := sqlbuilder.Builder()
 
 	for _, record := range records {
 		// Only import active or registered charities (optional filter)
@@ -471,22 +499,50 @@ func (i *Importer) insertCharityBatch(records []CharityRecord) error {
 		}
 
 		// Execute insert
-		_, err := stmt.Exec(
-			record.OrganisationNumber,
-			record.RegisteredCharityNumber,
-			record.LinkedCharityNumber,
-			record.CharityCompanyRegistrationNumber,
-			record.CharityName,
-			record.CharityRegistrationStatus,
-			dateRegistered,
-			dateRemoved,
-			address,
-			record.CharityContactWeb,
-			record.CharityContactEmail,
-			record.CharityContactPhone,
-			record.CharityActivities,
-			time.Now(),
-		)
+		insertSQL, insertArgs, sqlErr := b.Insert("charities").
+			Columns(
+				"organisation_number",
+				"registered_number",
+				"linked_charity_number",
+				"company_number",
+				"name",
+				"status",
+				"date_registered",
+				"date_removed",
+				"address",
+				"website",
+				"email",
+				"phone",
+				"what_the_charity_does",
+				"last_updated",
+			).
+			Values(
+				record.OrganisationNumber,
+				record.RegisteredCharityNumber,
+				record.LinkedCharityNumber,
+				record.CharityCompanyRegistrationNumber,
+				record.CharityName,
+				record.CharityRegistrationStatus,
+				dateRegistered,
+				dateRemoved,
+				address,
+				record.CharityContactWeb,
+				record.CharityContactEmail,
+				record.CharityContactPhone,
+				record.CharityActivities,
+				time.Now(),
+			).
+			Suffix(importerCharityUpsertSuffix()).
+			ToSql()
+		if sqlErr != nil {
+			if i.config.Verbose {
+				log.Printf("Failed to build insert for charity %d: %v", record.RegisteredCharityNumber, sqlErr)
+			}
+			i.progress.FailedRecords++
+			continue
+		}
+
+		_, err := tx.Exec(insertSQL, insertArgs...)
 		if err != nil {
 			if i.config.Verbose {
 				log.Printf("Failed to insert charity %d: %v", record.RegisteredCharityNumber, err)
@@ -519,16 +575,7 @@ func (i *Importer) insertTrusteeBatch(records []TrusteeRecord) error {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
-
-	stmt, err := tx.Prepare(`
-		INSERT OR REPLACE INTO trustees
-		(charity_number, name, last_updated)
-		VALUES (?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer stmt.Close()
+	b := sqlbuilder.Builder()
 
 	for _, record := range records {
 		// Skip invalid records
@@ -537,11 +584,20 @@ func (i *Importer) insertTrusteeBatch(records []TrusteeRecord) error {
 			continue
 		}
 
-		_, err := stmt.Exec(
-			record.RegisteredCharityNumber,
-			record.TrusteeName,
-			time.Now(),
-		)
+		insertSQL, insertArgs, sqlErr := b.Insert("trustees").
+			Columns("charity_number", "name", "last_updated").
+			Values(record.RegisteredCharityNumber, record.TrusteeName, time.Now()).
+			Suffix(importerTrusteeUpsertSuffix()).
+			ToSql()
+		if sqlErr != nil {
+			if i.config.Verbose {
+				log.Printf("Failed to build trustee insert for charity %d: %v", record.RegisteredCharityNumber, sqlErr)
+			}
+			i.progress.FailedRecords++
+			continue
+		}
+
+		_, err := tx.Exec(insertSQL, insertArgs...)
 		if err != nil {
 			if i.config.Verbose {
 				log.Printf("Failed to insert trustee for charity %d: %v", record.RegisteredCharityNumber, err)
@@ -569,18 +625,7 @@ func (i *Importer) insertFinancialBatch(records []AnnualReturnPartBRecord) error
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
-
-	stmt, err := tx.Prepare(`
-		INSERT OR REPLACE INTO financials
-		(charity_number, financial_year_end, total_income, total_spending,
-		 charitable_activities_spend, raising_funds_spend, other_spend,
-		 reserves, assets, employees, last_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer stmt.Close()
+	b := sqlbuilder.Builder()
 
 	for _, record := range records {
 		// Skip invalid records
@@ -602,19 +647,44 @@ func (i *Importer) insertFinancialBatch(records []AnnualReturnPartBRecord) error
 			otherSpend = *record.ExpenditureGovernance
 		}
 
-		_, err := stmt.Exec(
-			record.RegisteredCharityNumber,
-			yearEnd,
-			orDefaultPtr(record.IncomeTotalIncomeEndowments, 0),
-			orDefaultPtr(record.ExpenditureTotal, 0),
-			orDefaultPtr(record.ExpenditureCharitableExpend, 0),
-			orDefaultPtr(record.ExpenditureRaisingFunds, 0),
-			otherSpend,
-			orDefaultPtr(record.Reserves, 0),
-			orDefaultPtr(record.AssetsTotalAssetsLiabilities, 0),
-			orDefaultPtrInt(record.CountEmployees, 0),
-			time.Now(),
-		)
+		insertSQL, insertArgs, sqlErr := b.Insert("financials").
+			Columns(
+				"charity_number",
+				"financial_year_end",
+				"total_income",
+				"total_spending",
+				"charitable_activities_spend",
+				"raising_funds_spend",
+				"other_spend",
+				"reserves",
+				"assets",
+				"employees",
+				"last_updated",
+			).
+			Values(
+				record.RegisteredCharityNumber,
+				yearEnd,
+				orDefaultPtr(record.IncomeTotalIncomeEndowments, 0),
+				orDefaultPtr(record.ExpenditureTotal, 0),
+				orDefaultPtr(record.ExpenditureCharitableExpend, 0),
+				orDefaultPtr(record.ExpenditureRaisingFunds, 0),
+				otherSpend,
+				orDefaultPtr(record.Reserves, 0),
+				orDefaultPtr(record.AssetsTotalAssetsLiabilities, 0),
+				orDefaultPtrInt(record.CountEmployees, 0),
+				time.Now(),
+			).
+			Suffix(importerFinancialUpsertSuffix()).
+			ToSql()
+		if sqlErr != nil {
+			if i.config.Verbose {
+				log.Printf("Failed to build financial insert for charity %d: %v", record.RegisteredCharityNumber, sqlErr)
+			}
+			i.progress.FailedRecords++
+			continue
+		}
+
+		_, err := tx.Exec(insertSQL, insertArgs...)
 		if err != nil {
 			if i.config.Verbose {
 				log.Printf("Failed to insert financial data for charity %d: %v", record.RegisteredCharityNumber, err)
@@ -731,20 +801,7 @@ func (i *Importer) insertAnnualReturnHistoryBatch(records []AnnualReturnHistoryR
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
-
-	stmt, err := tx.Prepare(`
-		INSERT OR REPLACE INTO annual_return_history
-		(organisation_number, registered_charity_number, fin_period_start_date, 
-		 fin_period_end_date, ar_cycle_reference, reporting_due_date,
-		 date_annual_return_received, date_accounts_received, total_gross_income,
-		 total_gross_expenditure, accounts_qualified, suppression_ind, 
-		 suppression_type, date_of_extract)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer stmt.Close()
+	b := sqlbuilder.Builder()
 
 	for _, record := range records {
 		var finStartDate, finEndDate, dueDate, arReceivedDate, accountsReceivedDate, extractDate interface{}
@@ -766,22 +823,60 @@ func (i *Importer) insertAnnualReturnHistoryBatch(records []AnnualReturnHistoryR
 		}
 		extractDate = parseDate(record.DateOfExtract)
 
-		_, err := stmt.Exec(
-			record.OrganisationNumber,
-			record.RegisteredCharityNumber,
-			finStartDate,
-			finEndDate,
-			record.ARCycleReference,
-			dueDate,
-			arReceivedDate,
-			accountsReceivedDate,
-			record.TotalGrossIncome,
-			record.TotalGrossExpenditure,
-			record.AccountsQualified,
-			record.SuppressionInd,
-			record.SuppressionType,
-			extractDate,
-		)
+		// Convert FlexibleBool to *bool for database storage
+		var accountsQualified *bool
+		if record.AccountsQualified != nil && record.AccountsQualified.Valid {
+			accountsQualified = &record.AccountsQualified.Value
+		}
+
+		var suppressionInd *bool
+		if record.SuppressionInd.Valid {
+			suppressionInd = &record.SuppressionInd.Value
+		}
+
+		insertSQL, insertArgs, sqlErr := b.Insert("annual_return_history").
+			Columns(
+				"organisation_number",
+				"registered_charity_number",
+				"fin_period_start_date",
+				"fin_period_end_date",
+				"ar_cycle_reference",
+				"reporting_due_date",
+				"date_annual_return_received",
+				"date_accounts_received",
+				"total_gross_income",
+				"total_gross_expenditure",
+				"accounts_qualified",
+				"suppression_ind",
+				"suppression_type",
+				"date_of_extract",
+			).
+			Values(
+				record.OrganisationNumber,
+				record.RegisteredCharityNumber,
+				finStartDate,
+				finEndDate,
+				record.ARCycleReference,
+				dueDate,
+				arReceivedDate,
+				accountsReceivedDate,
+				record.TotalGrossIncome,
+				record.TotalGrossExpenditure,
+				accountsQualified,
+				suppressionInd,
+				record.SuppressionType,
+				extractDate,
+			).
+			ToSql()
+		if sqlErr != nil {
+			if i.config.Verbose {
+				log.Printf("Failed to build annual return history insert for charity %d: %v", record.RegisteredCharityNumber, sqlErr)
+			}
+			i.progress.FailedRecords++
+			continue
+		}
+
+		_, err := tx.Exec(insertSQL, insertArgs...)
 
 		if err != nil {
 			if i.config.Verbose {
@@ -811,32 +906,74 @@ func (i *Importer) insertFinancialData(tx *sql.Tx, record CharityRecord) {
 	}
 
 	yearEnd := parseDate(*record.LatestAccFinPeriodEndDate)
+	b := sqlbuilder.Builder()
 
-	_, err := tx.Exec(`
-		INSERT OR REPLACE INTO financials
-		(charity_number, financial_year_end, total_income, total_spending, 
-		 charitable_activities_spend, raising_funds_spend, other_spend, 
-		 reserves, assets, trustees, last_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`,
-		record.RegisteredCharityNumber,
-		yearEnd,
-		orDefault(record.LatestIncome, 0),
-		orDefault(record.LatestExpenditure, 0),
-		0, // Not in the data dump - will be estimated or fetched from API
-		0, // Not in the data dump
-		0, // Not in the data dump
-		0, // Not in the data dump
-		0, // Not in the data dump
-		0, // Not in the data dump
-		time.Now(),
-	)
+	insertSQL, insertArgs, sqlErr := b.Insert("financials").
+		Columns(
+			"charity_number",
+			"financial_year_end",
+			"total_income",
+			"total_spending",
+			"charitable_activities_spend",
+			"raising_funds_spend",
+			"other_spend",
+			"reserves",
+			"assets",
+			"employees",
+			"trustees",
+			"last_updated",
+		).
+		Values(
+			record.RegisteredCharityNumber,
+			yearEnd,
+			orDefault(record.LatestIncome, 0),
+			orDefault(record.LatestExpenditure, 0),
+			0,
+			0,
+			0,
+			0,
+			0,
+			0,
+			0,
+			time.Now(),
+		).
+		Suffix(importerFinancialUpsertSuffix()).
+		ToSql()
+	if sqlErr != nil {
+		if i.config.Verbose {
+			log.Printf("Failed to build fallback financial insert for charity %d: %v", record.RegisteredCharityNumber, sqlErr)
+		}
+		return
+	}
+
+	_, err := tx.Exec(insertSQL, insertArgs...)
 	if err != nil && i.config.Verbose {
 		log.Printf("Failed to insert financial data for charity %d: %v", record.RegisteredCharityNumber, err)
 	}
 }
 
 // Helper functions
+
+func importerCharityUpsertSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE registered_number = VALUES(registered_number), linked_charity_number = VALUES(linked_charity_number), company_number = VALUES(company_number), name = VALUES(name), status = VALUES(status), date_registered = VALUES(date_registered), date_removed = VALUES(date_removed), address = VALUES(address), website = VALUES(website), email = VALUES(email), phone = VALUES(phone), what_the_charity_does = VALUES(what_the_charity_does), last_updated = VALUES(last_updated)"
+	}
+	return "ON CONFLICT (organisation_number) DO UPDATE SET registered_number = EXCLUDED.registered_number, linked_charity_number = EXCLUDED.linked_charity_number, company_number = EXCLUDED.company_number, name = EXCLUDED.name, status = EXCLUDED.status, date_registered = EXCLUDED.date_registered, date_removed = EXCLUDED.date_removed, address = EXCLUDED.address, website = EXCLUDED.website, email = EXCLUDED.email, phone = EXCLUDED.phone, what_the_charity_does = EXCLUDED.what_the_charity_does, last_updated = EXCLUDED.last_updated"
+}
+
+func importerTrusteeUpsertSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE last_updated = VALUES(last_updated)"
+	}
+	return "ON CONFLICT (charity_number, name) DO UPDATE SET last_updated = EXCLUDED.last_updated"
+}
+
+func importerFinancialUpsertSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE total_income = VALUES(total_income), total_spending = VALUES(total_spending), charitable_activities_spend = VALUES(charitable_activities_spend), raising_funds_spend = VALUES(raising_funds_spend), other_spend = VALUES(other_spend), reserves = VALUES(reserves), assets = VALUES(assets), employees = VALUES(employees), trustees = VALUES(trustees), last_updated = VALUES(last_updated)"
+	}
+	return "ON CONFLICT (charity_number, financial_year_end) DO UPDATE SET total_income = EXCLUDED.total_income, total_spending = EXCLUDED.total_spending, charitable_activities_spend = EXCLUDED.charitable_activities_spend, raising_funds_spend = EXCLUDED.raising_funds_spend, other_spend = EXCLUDED.other_spend, reserves = EXCLUDED.reserves, assets = EXCLUDED.assets, employees = EXCLUDED.employees, trustees = EXCLUDED.trustees, last_updated = EXCLUDED.last_updated"
+}
 
 func buildAddress(parts ...*string) string {
 	var address string

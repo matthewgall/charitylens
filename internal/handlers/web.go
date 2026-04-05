@@ -7,11 +7,13 @@ import (
 	"strconv"
 
 	"charitylens/internal/config"
+	"charitylens/internal/database/sqlbuilder"
 	"charitylens/internal/models"
 	"charitylens/internal/scoring"
 	"charitylens/internal/sync"
 	"charitylens/web/templates"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -42,10 +44,24 @@ func (h *WebHandler) CharityPage(w http.ResponseWriter, r *http.Request) {
 	// Check if we have basic charity info (main charity only, linked_charity_number = 0)
 	var charity models.Charity
 	var website, email, address, whatTheCharityDoes sql.NullString
-	err = h.DB.QueryRow(`
-		SELECT registered_number, name, status, date_registered, address, website, email, what_the_charity_does
-		FROM charities WHERE registered_number = ? AND linked_charity_number = 0
-	`, number).Scan(
+	b := sqlbuilder.Builder()
+	charitySQL, charityArgs, buildErr := b.Select(
+		"registered_number",
+		"name",
+		"status",
+		"date_registered",
+		"address",
+		"website",
+		"email",
+		"what_the_charity_does",
+	).From("charities").
+		Where(sq.Eq{"registered_number": number, "linked_charity_number": 0}).
+		ToSql()
+	if buildErr != nil {
+		http.Error(w, "Error preparing query", http.StatusInternalServerError)
+		return
+	}
+	err = h.DB.QueryRow(charitySQL, charityArgs...).Scan(
 		&charity.RegisteredNumber, &charity.Name, &charity.Status,
 		&charity.DateRegistered, &address, &website,
 		&email, &whatTheCharityDoes,
@@ -165,9 +181,12 @@ func (h *WebHandler) CharityPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get trustees
-	trusteeRows, err := h.DB.Query(`
-		SELECT name FROM trustees WHERE charity_number = ? ORDER BY name
-	`, number)
+	trusteeSQL, trusteeArgs, buildErr := b.Select("name").From("trustees").Where(sq.Eq{"charity_number": number}).OrderBy("name").ToSql()
+	if buildErr != nil {
+		http.Error(w, "Error preparing trustee query", http.StatusInternalServerError)
+		return
+	}
+	trusteeRows, err := h.DB.Query(trusteeSQL, trusteeArgs...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -188,12 +207,26 @@ func (h *WebHandler) CharityPage(w http.ResponseWriter, r *http.Request) {
 	// Get financial data
 	var financial models.Financial
 	var trusteeCount sql.NullInt64
-	err = h.DB.QueryRow(`
-		SELECT financial_year_end, total_income, total_spending, charitable_activities_spend, 
-		       raising_funds_spend, other_spend, reserves, assets, trustees
-		FROM financials WHERE charity_number = ?
-		ORDER BY financial_year_end DESC LIMIT 1
-	`, number).Scan(
+	financialSQL, financialArgs, buildErr := b.Select(
+		"financial_year_end",
+		"total_income",
+		"total_spending",
+		"charitable_activities_spend",
+		"raising_funds_spend",
+		"other_spend",
+		"reserves",
+		"assets",
+		"trustees",
+	).From("financials").
+		Where(sq.Eq{"charity_number": number}).
+		OrderBy("financial_year_end DESC").
+		Limit(1).
+		ToSql()
+	if buildErr != nil {
+		http.Error(w, "Error preparing financial query", http.StatusInternalServerError)
+		return
+	}
+	err = h.DB.QueryRow(financialSQL, financialArgs...).Scan(
 		&financial.FinancialYearEnd, &financial.TotalIncome, &financial.TotalSpending,
 		&financial.CharitableActivitiesSpend, &financial.RaisingFundsSpend,
 		&financial.OtherSpend, &financial.Reserves, &financial.Assets, &trusteeCount,
@@ -206,9 +239,12 @@ func (h *WebHandler) CharityPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get activities
-	activityRows, err := h.DB.Query(`
-		SELECT description FROM activities WHERE charity_number = ? ORDER BY description
-	`, number)
+	activitySQL, activityArgs, buildErr := b.Select("description").From("activities").Where(sq.Eq{"charity_number": number}).OrderBy("description").ToSql()
+	if buildErr != nil {
+		http.Error(w, "Error preparing activity query", http.StatusInternalServerError)
+		return
+	}
+	activityRows, err := h.DB.Query(activitySQL, activityArgs...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

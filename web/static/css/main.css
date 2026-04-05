@@ -1784,6 +1784,7 @@ select:-moz-focusring {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
+    margin-top: var(--space-lg);
     margin-bottom: var(--space-lg);
     font-size: 0.875rem;
 }

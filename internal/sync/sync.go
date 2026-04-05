@@ -11,6 +11,7 @@ import (
 
 	"charitylens/internal/api"
 	"charitylens/internal/config"
+	"charitylens/internal/database/sqlbuilder"
 )
 
 // debugLog logs a message only if debug mode is enabled
@@ -76,6 +77,7 @@ func FetchAndStoreCharity(cfg *config.Config, db *sql.DB, charityNum string) err
 	}
 
 	debugLog(cfg, "Successfully received and parsed API data for charity %s", charityNum)
+	b := sqlbuilder.Builder()
 
 	// Parse and store charity data
 	debugLog(cfg, "Parsing charity data for %s", charityNum)
@@ -84,16 +86,54 @@ func FetchAndStoreCharity(cfg *config.Config, db *sql.DB, charityNum string) err
 		log.Printf("Failed to parse charity data for %s: %v", charityNum, err)
 		return err
 	}
+	if charity.OrganisationNumber == 0 {
+		charity.OrganisationNumber = charity.RegisteredNumber
+	}
 	debugLog(cfg, "Parsed charity: registered_number=%d, name=%s", charity.RegisteredNumber, charity.Name)
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for charity %s: %w", charityNum, err)
+	}
+	defer tx.Rollback()
 
 	// Insert charity
 	debugLog(cfg, "Storing charity data for %s in database", charityNum)
-	_, err = db.Exec(`
-		INSERT OR REPLACE INTO charities
-		(registered_number, company_number, name, status, date_registered, address, website, email, what_the_charity_does)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		charity.RegisteredNumber, charity.CompanyNumber, charity.Name, charity.Status, charity.DateRegistered,
-		charity.Address, charity.Website, charity.Email, charity.WhatTheCharityDoes)
+	charityInsertSQL, charityInsertArgs, err := b.Insert("charities").
+		Columns(
+			"organisation_number",
+			"registered_number",
+			"linked_charity_number",
+			"company_number",
+			"name",
+			"status",
+			"date_registered",
+			"address",
+			"website",
+			"email",
+			"what_the_charity_does",
+			"last_updated",
+		).
+		Values(
+			charity.OrganisationNumber,
+			charity.RegisteredNumber,
+			charity.LinkedCharityNumber,
+			charity.CompanyNumber,
+			charity.Name,
+			charity.Status,
+			charity.DateRegistered,
+			charity.Address,
+			charity.Website,
+			charity.Email,
+			charity.WhatTheCharityDoes,
+			charity.LastUpdated,
+		).
+		Suffix(upsertCharitySuffix()).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("failed to build charity upsert SQL for %s: %w", charityNum, err)
+	}
+	_, err = tx.Exec(charityInsertSQL, charityInsertArgs...)
 	if err != nil {
 		log.Printf("Failed to store charity data for %s: %v", charityNum, err)
 		return err
@@ -121,15 +161,43 @@ func FetchAndStoreCharity(cfg *config.Config, db *sql.DB, charityNum string) err
 			}
 		}
 
-		_, err := db.Exec(`
-			INSERT OR REPLACE INTO financials
-			(charity_number, financial_year_end, total_income, total_spending, charitable_activities_spend, raising_funds_spend, other_spend, reserves, assets, trustees, last_updated)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			fin.CharityNumber, fin.FinancialYearEnd, fin.TotalIncome, fin.TotalSpending,
-			fin.CharitableActivitiesSpend, fin.RaisingFundsSpend, fin.OtherSpend,
-			fin.Reserves, fin.Assets, fin.Trustees, fin.LastUpdated)
+		financialInsertSQL, financialInsertArgs, sqlErr := b.Insert("financials").
+			Columns(
+				"charity_number",
+				"financial_year_end",
+				"total_income",
+				"total_spending",
+				"charitable_activities_spend",
+				"raising_funds_spend",
+				"other_spend",
+				"reserves",
+				"assets",
+				"trustees",
+				"last_updated",
+			).
+			Values(
+				fin.CharityNumber,
+				fin.FinancialYearEnd,
+				fin.TotalIncome,
+				fin.TotalSpending,
+				fin.CharitableActivitiesSpend,
+				fin.RaisingFundsSpend,
+				fin.OtherSpend,
+				fin.Reserves,
+				fin.Assets,
+				fin.Trustees,
+				fin.LastUpdated,
+			).
+			Suffix(upsertFinancialSuffix()).
+			ToSql()
+		if sqlErr != nil {
+			return fmt.Errorf("failed to build financial upsert SQL for %s: %w", charityNum, sqlErr)
+		}
+
+		_, err := tx.Exec(financialInsertSQL, financialInsertArgs...)
 		if err != nil {
 			log.Printf("Failed to store financial data for charity %s: %v", charityNum, err)
+			return err
 		} else {
 			debugLog(cfg, "Stored financial data for charity %s (income: %.2f, spending: %.2f, charitable: %.2f)", charityNum, fin.TotalIncome, fin.TotalSpending, fin.CharitableActivitiesSpend)
 		}
@@ -143,23 +211,53 @@ func FetchAndStoreCharity(cfg *config.Config, db *sql.DB, charityNum string) err
 		debugLog(cfg, "Processing %d trustee records for charity %s", len(trustees), charityNum)
 		for i, trustee := range trustees {
 			debugLog(cfg, "Processing trustee record %d for charity %s: %s", i+1, charityNum, trustee.Name)
-			_, err := db.Exec(`
-				INSERT OR REPLACE INTO trustees
-				(charity_number, name, last_updated)
-				VALUES (?, ?, ?)`,
-				trustee.CharityNumber, trustee.Name, trustee.LastUpdated)
+			trusteeInsertSQL, trusteeInsertArgs, sqlErr := b.Insert("trustees").
+				Columns("charity_number", "name", "last_updated").
+				Values(trustee.CharityNumber, trustee.Name, trustee.LastUpdated).
+				Suffix(upsertTrusteeSuffix()).
+				ToSql()
+			if sqlErr != nil {
+				return fmt.Errorf("failed to build trustee upsert SQL for charity %s: %w", charityNum, sqlErr)
+			}
+
+			_, err := tx.Exec(trusteeInsertSQL, trusteeInsertArgs...)
 			if err != nil {
 				log.Printf("Failed to store trustee data for charity %s: %v", charityNum, err)
-			} else {
-				debugLog(cfg, "Stored trustee data for charity %s: %s", charityNum, trustee.Name)
+				return err
 			}
+			debugLog(cfg, "Stored trustee data for charity %s: %s", charityNum, trustee.Name)
 		}
 	} else {
 		debugLog(cfg, "No trustee data available for charity %s", charityNum)
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit charity %s transaction: %w", charityNum, err)
+	}
+
 	debugLog(cfg, "Completed data storage for charity %s", charityNum)
 	return nil
+}
+
+func upsertCharitySuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE registered_number = VALUES(registered_number), linked_charity_number = VALUES(linked_charity_number), company_number = VALUES(company_number), name = VALUES(name), status = VALUES(status), date_registered = VALUES(date_registered), address = VALUES(address), website = VALUES(website), email = VALUES(email), what_the_charity_does = VALUES(what_the_charity_does), last_updated = VALUES(last_updated)"
+	}
+	return "ON CONFLICT (organisation_number) DO UPDATE SET registered_number = EXCLUDED.registered_number, linked_charity_number = EXCLUDED.linked_charity_number, company_number = EXCLUDED.company_number, name = EXCLUDED.name, status = EXCLUDED.status, date_registered = EXCLUDED.date_registered, address = EXCLUDED.address, website = EXCLUDED.website, email = EXCLUDED.email, what_the_charity_does = EXCLUDED.what_the_charity_does, last_updated = EXCLUDED.last_updated"
+}
+
+func upsertFinancialSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE total_income = VALUES(total_income), total_spending = VALUES(total_spending), charitable_activities_spend = VALUES(charitable_activities_spend), raising_funds_spend = VALUES(raising_funds_spend), other_spend = VALUES(other_spend), reserves = VALUES(reserves), assets = VALUES(assets), trustees = VALUES(trustees), last_updated = VALUES(last_updated)"
+	}
+	return "ON CONFLICT (charity_number, financial_year_end) DO UPDATE SET total_income = EXCLUDED.total_income, total_spending = EXCLUDED.total_spending, charitable_activities_spend = EXCLUDED.charitable_activities_spend, raising_funds_spend = EXCLUDED.raising_funds_spend, other_spend = EXCLUDED.other_spend, reserves = EXCLUDED.reserves, assets = EXCLUDED.assets, trustees = EXCLUDED.trustees, last_updated = EXCLUDED.last_updated"
+}
+
+func upsertTrusteeSuffix() string {
+	if sqlbuilder.IsMySQL() {
+		return "ON DUPLICATE KEY UPDATE last_updated = VALUES(last_updated)"
+	}
+	return "ON CONFLICT (charity_number, name) DO UPDATE SET last_updated = EXCLUDED.last_updated"
 }
 
 func SearchCharitiesByName(cfg *config.Config, query string) ([]map[string]any, error) {
