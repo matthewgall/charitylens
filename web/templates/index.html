@@ -98,6 +98,25 @@
             // Add search input enhancements
             const searchInput = document.querySelector('.search-input');
             const searchForm = document.querySelector('.search-form');
+            const searchButton = document.querySelector('.search-button');
+            const searchButtonLabel = searchButton ? searchButton.querySelector('span') : null;
+            const loadingMarkup = `
+                <div class="results-loading">
+                    <div class="loading-spinner"></div>
+                    <h3>Searching charities...</h3>
+                    <p>Fetching and ranking matching charities</p>
+                </div>
+            `;
+
+            function setSearchLoading(isLoading) {
+                if (!searchButton) {
+                    return;
+                }
+                searchButton.disabled = isLoading;
+                if (searchButtonLabel) {
+                    searchButtonLabel.textContent = isLoading ? 'Searching...' : 'Search';
+                }
+            }
             
             // Auto-focus search on page load without jumping viewport
             if (searchInput) {
@@ -108,9 +127,30 @@
                 }
             }
 
+            htmx.on('htmx:beforeRequest', function(evt) {
+                if (evt.detail.target && evt.detail.target.id === 'results') {
+                    setSearchLoading(true);
+                    evt.detail.target.innerHTML = loadingMarkup;
+                }
+            });
+
             htmx.on('htmx:afterRequest', function(evt) {
-                if (evt.detail.target.id === 'results' && evt.detail.xhr.response) {
-                    const data = JSON.parse(evt.detail.xhr.response);
+                if (evt.detail.target && evt.detail.target.id === 'results' && evt.detail.xhr.response) {
+                    setSearchLoading(false);
+
+                    let data;
+                    try {
+                        data = JSON.parse(evt.detail.xhr.response);
+                    } catch (e) {
+                        evt.detail.target.innerHTML = `
+                            <div class="empty-state">
+                                <h3>Search unavailable</h3>
+                                <p>We couldn't parse the search response. Please try again.</p>
+                            </div>
+                        `;
+                        return;
+                    }
+
                     const charities = data.results || data; // Support both formats
                     const total = data.total || charities.length;
                     const offset = data.offset || 0;
@@ -226,6 +266,18 @@
                     if (offset > 0) {
                         document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
                     }
+                }
+            });
+
+            htmx.on('htmx:responseError', function(evt) {
+                if (evt.detail.target && evt.detail.target.id === 'results') {
+                    setSearchLoading(false);
+                    evt.detail.target.innerHTML = `
+                        <div class="empty-state">
+                            <h3>Search failed</h3>
+                            <p>The search request failed. Please try again in a moment.</p>
+                        </div>
+                    `;
                 }
             });
         });
