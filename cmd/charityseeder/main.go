@@ -339,6 +339,19 @@ func runDownloadImport(config *Config, db *sql.DB) error {
 		log.Printf("Warning: Failed to calculate all scores: %v (import was successful)", err)
 	}
 
+	// Create SQLite-specific NOCASE indexes for fast prefix name search on first runtime query.
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_charities_name_nocase ON charities(name COLLATE NOCASE)"); err != nil {
+		log.Printf("Warning: Failed to create idx_charities_name_nocase: %v", err)
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_charities_linked_name_nocase ON charities(linked_charity_number, name COLLATE NOCASE)"); err != nil {
+		log.Printf("Warning: Failed to create idx_charities_linked_name_nocase: %v", err)
+	}
+
+	// Prime SQLite planner stats so first runtime searches are faster.
+	if _, err := db.Exec("ANALYZE; PRAGMA optimize;"); err != nil {
+		log.Printf("Warning: Failed to optimize SQLite statistics: %v", err)
+	}
+
 	log.Println("\n=== Download Import Complete ===")
 	return nil
 }

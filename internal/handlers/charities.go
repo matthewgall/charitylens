@@ -185,12 +185,18 @@ func (h *CharityHandler) searchByNumber(charityNum int, limit int) []models.Char
 func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]models.Charity, int) {
 	h.debugLog("Searching for charity name: %s (limit=%d, offset=%d)", query, limit, offset)
 	b := sqlbuilder.Builder()
+	nameCountFilter := sq.Expr("LOWER(name) LIKE LOWER(?)", query+"%")
+	nameResultFilter := sq.Expr("LOWER(c.name) LIKE LOWER(?)", query+"%")
+	if h.Cfg != nil && h.Cfg.DatabaseType == "sqlite" {
+		nameCountFilter = sq.Expr("name LIKE ? COLLATE NOCASE", query+"%")
+		nameResultFilter = sq.Expr("c.name LIKE ? COLLATE NOCASE", query+"%")
+	}
 
 	// First, get total count of matching charities in database (main charities only, exclude removed)
 	var totalInDB int
 	countSQL, countArgs, err := b.Select("COUNT(*)").
 		From("charities").
-		Where(sq.Expr("LOWER(name) LIKE LOWER(?)", query+"%")).
+		Where(nameCountFilter).
 		Where(sq.Eq{"linked_charity_number": 0}).
 		Where("status NOT IN ('Removed', 'RM')").
 		ToSql()
@@ -309,7 +315,7 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 		"COALESCE(s.overall_score, 0) as overall_score",
 	).From("charities c").
 		LeftJoin("charity_scores s ON c.registered_number = s.charity_number").
-		Where(sq.Expr("LOWER(c.name) LIKE LOWER(?)", query+"%")).
+		Where(nameResultFilter).
 		Where(sq.Eq{"c.linked_charity_number": 0}).
 		Where("c.status NOT IN ('Removed', 'RM')").
 		OrderBy("c.name").
