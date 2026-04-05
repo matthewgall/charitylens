@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -100,6 +102,10 @@ func main() {
 		logger.Info("Database warmed up", "charities_found", count > 0)
 	}
 
+	if err := warmSearchPrefixes(db, cfg); err != nil {
+		logger.Error("Search warm-up failed", "error", err)
+	}
+
 	logger.Info("Database ready")
 
 	// Initialize handlers
@@ -184,4 +190,40 @@ func main() {
 	}
 
 	logger.Info("Server gracefully stopped")
+}
+
+func warmSearchPrefixes(db *sql.DB, cfg *config.Config) error {
+	if cfg == nil || !strings.EqualFold(cfg.DatabaseType, "sqlite") {
+		return nil
+	}
+
+	prefixes := []string{"c", "b", "s", "t"}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	for _, p := range prefixes {
+		var warmCount int
+		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM charities WHERE linked_charity_number = 0 AND name LIKE ? COLLATE NOCASE", p+"%").Scan(&warmCount); err != nil {
+			return err
+		}
+
+		rows, err := db.QueryContext(ctx, "SELECT registered_number FROM charities WHERE linked_charity_number = 0 AND name LIKE ? COLLATE NOCASE ORDER BY name LIMIT 10", p+"%")
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var n int
+			if scanErr := rows.Scan(&n); scanErr != nil {
+				rows.Close()
+				return scanErr
+			}
+		}
+		if closeErr := rows.Close(); closeErr != nil {
+			return closeErr
+		}
+	}
+
+	logger.Info("Search prefixes warmed", "prefixes", len(prefixes), "duration_ms", time.Since(start).Milliseconds())
+	return nil
 }

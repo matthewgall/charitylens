@@ -47,6 +47,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func (h *CharityHandler) SearchCharities(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	limitStr := r.URL.Query().Get("limit")
 	offsetStr := r.URL.Query().Get("offset")
@@ -91,6 +92,13 @@ func (h *CharityHandler) SearchCharities(w http.ResponseWriter, r *http.Request)
 			"offset":  offset,
 		}
 		writeJSON(w, http.StatusOK, response)
+		log.Printf("search request complete type=number query=%q limit=%d offset=%d results=%d duration_ms=%d", query, limit, offset, len(charities), time.Since(start).Milliseconds())
+		return
+	}
+
+	if len(query) < 2 {
+		http.Error(w, "Please enter at least 2 characters for name searches", http.StatusBadRequest)
+		log.Printf("search request rejected type=name query=%q limit=%d offset=%d reason=min_length duration_ms=%d", query, limit, offset, time.Since(start).Milliseconds())
 		return
 	}
 
@@ -107,6 +115,7 @@ func (h *CharityHandler) SearchCharities(w http.ResponseWriter, r *http.Request)
 		"has_more": offset+len(charities) < total,
 	}
 	writeJSON(w, http.StatusOK, response)
+	log.Printf("search request complete type=name query=%q limit=%d offset=%d results=%d total=%d duration_ms=%d", query, limit, offset, len(charities), total, time.Since(start).Milliseconds())
 }
 
 func (h *CharityHandler) searchByNumber(charityNum int, limit int) []models.Charity {
@@ -184,6 +193,7 @@ func (h *CharityHandler) searchByNumber(charityNum int, limit int) []models.Char
 
 func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]models.Charity, int) {
 	h.debugLog("Searching for charity name: %s (limit=%d, offset=%d)", query, limit, offset)
+	totalStart := time.Now()
 	b := sqlbuilder.Builder()
 	nameCountFilter := sq.Expr("LOWER(name) LIKE LOWER(?)", query+"%")
 	nameResultFilter := sq.Expr("LOWER(c.name) LIKE LOWER(?)", query+"%")
@@ -194,6 +204,8 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 
 	// First, get total count of matching charities in database (main charities only, exclude removed)
 	var totalInDB int
+	countDuration := time.Duration(0)
+	countStart := time.Now()
 	countSQL, countArgs, err := b.Select("COUNT(*)").
 		From("charities").
 		Where(nameCountFilter).
@@ -203,6 +215,7 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 	if err == nil {
 		h.DB.QueryRow(countSQL, countArgs...).Scan(&totalInDB)
 	}
+	countDuration = time.Since(countStart)
 
 	h.debugLog("Total charities in database matching '%s': %d", query, totalInDB)
 
@@ -284,7 +297,9 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 			go syncFunc()
 		} else {
 			// Synchronous for first-time searches - wait and use results
+			apiStart := time.Now()
 			apiCharities = syncFunc()
+			apiDuration := time.Since(apiStart)
 			if len(apiCharities) > 0 {
 				// Return paginated slice of API results
 				start := offset
@@ -298,6 +313,7 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 
 				paginatedResults := apiCharities[start:end]
 				h.debugLog("Returning %d charities from API results (offset=%d, total=%d)", len(paginatedResults), offset, len(apiCharities))
+				log.Printf("search metrics source=api_sync query=%q limit=%d offset=%d count_ms=%d api_ms=%d total_ms=%d total=%d returned=%d", query, limit, offset, countDuration.Milliseconds(), apiDuration.Milliseconds(), time.Since(totalStart).Milliseconds(), len(apiCharities), len(paginatedResults))
 				return paginatedResults, len(apiCharities)
 			}
 		}
@@ -323,9 +339,12 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 		Offset(uint64(offset)).
 		ToSql()
 
+	resultStart := time.Now()
 	rows, err := h.DB.Query(resultSQL, resultArgs...)
+	resultQueryDuration := time.Since(resultStart)
 
 	var charities []models.Charity
+	scanStart := time.Now()
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -357,8 +376,10 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 			}
 		}
 	}
+	scanDuration := time.Since(scanStart)
 
 	h.debugLog("Returning %d charities from database (offset=%d, total=%d)", len(charities), offset, totalInDB)
+	log.Printf("search metrics source=db query=%q limit=%d offset=%d count_ms=%d result_query_ms=%d scan_ms=%d total_ms=%d total=%d returned=%d", query, limit, offset, countDuration.Milliseconds(), resultQueryDuration.Milliseconds(), scanDuration.Milliseconds(), time.Since(totalStart).Milliseconds(), totalInDB, len(charities))
 	return charities, totalInDB
 }
 
