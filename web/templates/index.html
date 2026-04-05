@@ -60,6 +60,7 @@
                         </svg>
                     </button>
                 </form>
+                <p id="search-validation" class="search-validation" role="alert" aria-live="polite"></p>
 
                 <div class="search-filters">
                     <button class="filter-chip active">All charities</button>
@@ -100,6 +101,7 @@
             const searchForm = document.querySelector('.search-form');
             const searchButton = document.querySelector('.search-button');
             const searchButtonLabel = searchButton ? searchButton.querySelector('span') : null;
+            const searchValidation = document.getElementById('search-validation');
             const loadingMarkup = `
                 <div class="results-loading">
                     <div class="loading-spinner"></div>
@@ -107,6 +109,14 @@
                     <p>Fetching and ranking matching charities</p>
                 </div>
             `;
+
+            function showValidation(message) {
+                if (!searchValidation) {
+                    return;
+                }
+                searchValidation.textContent = message;
+                searchValidation.classList.toggle('visible', message.length > 0);
+            }
 
             function setSearchLoading(isLoading) {
                 if (!searchButton) {
@@ -125,10 +135,35 @@
                 } catch (e) {
                     // Ignore if preventScroll is unsupported to avoid viewport jump
                 }
+
+                searchInput.addEventListener('input', function() {
+                    showValidation('');
+                });
+            }
+
+            if (searchForm && searchInput) {
+                searchForm.addEventListener('submit', function(evt) {
+                    const q = searchInput.value.trim();
+                    if (q === '') {
+                        return;
+                    }
+
+                    const isNumeric = /^\d+$/.test(q);
+                    if (!isNumeric && q.length < 2) {
+                        evt.preventDefault();
+                        showValidation('Please enter at least 2 characters for name searches (or enter a charity number).');
+                        try {
+                            searchInput.focus({ preventScroll: true });
+                        } catch (e) {
+                            // Ignore if preventScroll is unsupported
+                        }
+                    }
+                });
             }
 
             htmx.on('htmx:beforeRequest', function(evt) {
                 if (evt.detail.target && evt.detail.target.id === 'results') {
+                    showValidation('');
                     setSearchLoading(true);
                     evt.detail.target.innerHTML = loadingMarkup;
                 }

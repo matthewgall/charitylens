@@ -1272,6 +1272,21 @@ body.flex-layout footer {
     margin-top: var(--space-lg);
 }
 
+.search-validation {
+    margin-top: var(--space-sm);
+    min-height: 1.2em;
+    text-align: center;
+    color: #b91c1c;
+    font-size: 0.9rem;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity var(--transition-base);
+}
+
+.search-validation.visible {
+    opacity: 1;
+}
+
 .filter-chip {
     padding: var(--space-sm) var(--space-lg);
     background: var(--surface);
