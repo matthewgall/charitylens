@@ -60,6 +60,7 @@
                         </svg>
                     </button>
                 </form>
+                <p class="search-helper">Name searches need 2+ characters. Charity numbers can be any length.</p>
                 <p id="search-validation" class="search-validation" role="alert" aria-live="polite"></p>
 
                 <div class="search-filters">
@@ -106,7 +107,7 @@
                 <div class="results-loading">
                     <div class="loading-spinner"></div>
                     <h3>Searching charities...</h3>
-                    <p>Fetching and ranking matching charities</p>
+                    <p>Fetching and ranking matching charities. First searches for a term may take a little longer.</p>
                 </div>
             `;
 
@@ -122,10 +123,31 @@
                 if (!searchButton) {
                     return;
                 }
-                searchButton.disabled = isLoading;
+                if (isLoading) {
+                    searchButton.disabled = true;
+                } else {
+                    syncSearchButtonState();
+                }
                 if (searchButtonLabel) {
                     searchButtonLabel.textContent = isLoading ? 'Searching...' : 'Search';
                 }
+            }
+
+            function isValidQuery(query) {
+                if (query === '') {
+                    return false;
+                }
+                if (/^\d+$/.test(query)) {
+                    return true;
+                }
+                return query.length >= 2;
+            }
+
+            function syncSearchButtonState() {
+                if (!searchInput || !searchButton || searchButtonLabel.textContent === 'Searching...') {
+                    return;
+                }
+                searchButton.disabled = !isValidQuery(searchInput.value.trim());
             }
             
             // Auto-focus search on page load without jumping viewport
@@ -138,7 +160,10 @@
 
                 searchInput.addEventListener('input', function() {
                     showValidation('');
+                    syncSearchButtonState();
                 });
+
+                syncSearchButtonState();
             }
 
             if (searchForm && searchInput) {
@@ -158,6 +183,7 @@
                             // Ignore if preventScroll is unsupported
                         }
                     }
+                    syncSearchButtonState();
                 });
             }
 
@@ -301,12 +327,14 @@
                     if (offset > 0) {
                         document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
                     }
+                    syncSearchButtonState();
                 }
             });
 
             htmx.on('htmx:responseError', function(evt) {
                 if (evt.detail.target && evt.detail.target.id === 'results') {
                     setSearchLoading(false);
+                    syncSearchButtonState();
                     evt.detail.target.innerHTML = `
                         <div class="empty-state">
                             <h3>Search failed</h3>

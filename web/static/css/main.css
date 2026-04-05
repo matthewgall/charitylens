@@ -1287,6 +1287,13 @@ body.flex-layout footer {
     opacity: 1;
 }
 
+.search-helper {
+    margin-top: var(--space-sm);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.88rem;
+}
+
 .filter-chip {
     padding: var(--space-sm) var(--space-lg);
     background: var(--surface);

@@ -251,7 +251,7 @@ func (h *CharityHandler) searchByName(query string, limit int, offset int) ([]mo
 				log.Printf("Random refresh triggered for popular search '%s' (10%% chance)", query)
 			} else if err == sql.ErrNoRows {
 				log.Printf("First-time API search for '%s'", query)
-				searchInBackground = false // Wait for first search to complete
+				searchInBackground = true // Return DB results immediately, refresh in background
 			} else {
 				log.Printf("Periodic refresh for '%s' (last searched %.1f hours ago)", query, hoursSinceRefresh)
 			}
