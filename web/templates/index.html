@@ -99,8 +99,14 @@
             const searchInput = document.querySelector('.search-input');
             const searchForm = document.querySelector('.search-form');
             
-            // Auto-focus search on page load
-            searchInput.focus();
+            // Auto-focus search on page load without jumping viewport
+            if (searchInput) {
+                try {
+                    searchInput.focus({ preventScroll: true });
+                } catch (e) {
+                    // Ignore if preventScroll is unsupported to avoid viewport jump
+                }
+            }
 
             htmx.on('htmx:afterRequest', function(evt) {
                 if (evt.detail.target.id === 'results' && evt.detail.xhr.response) {
