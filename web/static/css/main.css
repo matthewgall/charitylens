@@ -1405,15 +1405,15 @@ select:-moz-focusring {
 .charity-grid {
     display: grid;
     grid-template-columns: 1fr;
-    gap: var(--space-lg);
-    max-width: 980px;
+    gap: var(--space-md);
+    max-width: 860px;
     margin: 0 auto;
 }
 
 .charity-card {
     background: var(--surface);
     border-radius: var(--radius-lg);
-    padding: var(--space-xl);
+    padding: var(--space-lg);
     box-shadow: var(--shadow);
     transition: all var(--transition-base);
     cursor: pointer;
@@ -1432,11 +1432,11 @@ select:-moz-focusring {
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--space-md);
-    margin-bottom: var(--space-2xl);
+    margin-bottom: var(--space-lg);
 }
 
 .charity-name {
-    font-size: 1.25rem;
+    font-size: 1.1rem;
     font-weight: 700;
     color: var(--text-primary);
     margin-bottom: var(--space-xs);
@@ -1444,9 +1444,9 @@ select:-moz-focusring {
 }
 
 .charity-score {
-    font-size: 2rem;
+    font-size: 1.5rem;
     font-weight: 800;
-    padding: var(--space-sm) var(--space-md);
+    padding: var(--space-xs) var(--space-sm);
     border-radius: var(--radius-md);
     line-height: 1;
     flex-shrink: 0;
@@ -1475,8 +1475,8 @@ select:-moz-focusring {
 
 .charity-meta {
     display: flex;
-    gap: var(--space-lg);
-    margin-bottom: var(--space-md);
+    gap: var(--space-md);
+    margin-bottom: var(--space-sm);
     flex-wrap: wrap;
 }
 
