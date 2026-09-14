@@ -1,12 +1,12 @@
 module charitylens
 
-go 1.25.0
+go 1.25.11
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-sql-driver/mysql v1.10.1
-	github.com/golang-migrate/migrate/v4 v4.19.1
+	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.50
 	github.com/schollz/progressbar/v3 v3.19.1
