@@ -4,7 +4,7 @@ go 1.25.11
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
-	github.com/go-chi/chi/v5 v5.4.0
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/lib/pq v1.12.3
