@@ -1,6 +1,6 @@
 module charitylens
 
-go 1.25.11
+go 1.26
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
